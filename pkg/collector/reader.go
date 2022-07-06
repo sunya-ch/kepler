@@ -35,6 +35,8 @@ import (
 	"github.com/sustainable-computing-io/kepler/pkg/power/gpu"
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl"
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl/source"
+
+	"encoding/json"
 )
 
 // #define CPU_VECTOR_SIZE 128
@@ -141,6 +143,11 @@ func init() {
 func (c *Collector) reader() {
 	ticker := time.NewTicker(samplePeriod)
 	go func() {
+		var influxDBClient *model.InfluxDBClient
+		if model.InfluxDBEndpoint != "" {
+			influxDBClient = model.NewInfluxDBClient()
+			defer influxDBClient.Destroy()
+		}
 		lastEnergyCore, _ := rapl.GetEnergyFromCore()
 		lastEnergyDram, _ := rapl.GetEnergyFromDram()
 		_ = gpu.GetGpuEnergy() // reset power usage counter
@@ -457,10 +464,50 @@ func (c *Collector) reader() {
 					}
 				}
 				samples = 1
+				if influxDBClient != nil {
+					podPoints := getPodPoints(podEnergy, coreDelta, dramDelta, gpuDelta, otherDelta, model.ALL_PKG)
+					influxDBClient.Write(podPoints)
+					log.Printf("Write %d pods to influxDB\n", len(podEnergy))
+				}
 				lock.Unlock()
 			}
 		}
 	}()
+}
+
+func getPodPoints(podEnergyMap map[string]*PodEnergy, corePower, dramPower, gpuPower, otherPower float64, pkgs string) []model.PodPoint {
+	podPoints := []model.PodPoint{}
+	
+	for _, podEnergy := range podEnergyMap {
+		fieldByte, _ := json.Marshal(podEnergy)
+		var fieldMap map[string]interface{}
+		json.Unmarshal(fieldByte, &fieldMap)
+		for k, v := range fieldMap["CgroupFSStats"].(map[string]interface{}) {
+			val := v.(map[string]interface{})
+			fieldMap["Curr_"+k] = val["Curr"]
+			fieldMap["Agg_"+k] = val["Aggr"]
+		}
+		delete(fieldMap, "CgroupFSStats")
+		delete(fieldMap, "Name")
+		delete(fieldMap, "Namespace")
+		delete(fieldMap, "Command")
+
+		podPoint := model.PodPoint{
+			Tag: model.PodTag{
+				Name: podEnergy.PodName,
+				Namespace: podEnergy.Namespace,
+				Command: podEnergy.Command,
+				CorePower: fmt.Sprintf("%.2f", corePower),
+				DRAMPower: fmt.Sprintf("%.2f", dramPower),
+				GPUPower: fmt.Sprintf("%.2f", gpuPower),
+				OtherPower: fmt.Sprintf("%.2f", otherPower),
+				PKGS: pkgs,
+			},
+			Fields: fieldMap,
+		}
+		podPoints = append(podPoints, podPoint)
+	}
+	return podPoints
 }
 
 // getAVGCPUFreqAndTotalCPUTime calculates the weighted cpu frequency average

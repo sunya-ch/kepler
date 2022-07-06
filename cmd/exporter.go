@@ -38,6 +38,7 @@ var (
 	modelServerEndpoint = flag.String("model-server-endpoint", "", "model server endpoint")
 )
 
+
 func main() {
 	flag.Parse()
 
@@ -55,6 +56,7 @@ func main() {
 	if modelServerEndpoint != nil {
 		model.SetModelServerEndpoint(*modelServerEndpoint)
 	}
+	model.SetInfluxServerEndpoint()
 
 	collector, err := collector.New()
 	if err != nil {
