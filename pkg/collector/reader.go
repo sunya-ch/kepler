@@ -28,9 +28,9 @@ import (
 	"unsafe"
 
 	"github.com/sustainable-computing-io/kepler/pkg/attacher"
+	"github.com/sustainable-computing-io/kepler/pkg/cgroup"
 	"github.com/sustainable-computing-io/kepler/pkg/model"
 	"github.com/sustainable-computing-io/kepler/pkg/pod_lister"
-	"github.com/sustainable-computing-io/kepler/pkg/cgroup"
 	"github.com/sustainable-computing-io/kepler/pkg/power/acpi"
 	"github.com/sustainable-computing-io/kepler/pkg/power/gpu"
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl"
@@ -86,8 +86,8 @@ type PodEnergy struct {
 	AggBytesWrite  uint64
 
 	AvgCPUFreq float64
-	
-	CgroupFSStats map[string]*UInt64Stat
+
+	CgroupFSStats     map[string]*UInt64Stat
 	CurrCPUTimePerCPU map[uint32]uint64
 }
 
@@ -97,7 +97,7 @@ type UInt64Stat struct {
 }
 
 func (s UInt64Stat) String() string {
-    return fmt.Sprintf("%d (%d)", s.Curr, s.Aggr)
+	return fmt.Sprintf("%d (%d)", s.Curr, s.Aggr)
 }
 
 type CurrNodeEnergy struct {
@@ -115,22 +115,22 @@ type CurrNodeEnergy struct {
 
 const (
 	samplePeriodSec = 3
-	samplePeriod = samplePeriodSec * 1000 * time.Millisecond
-	maxEnergyDelta = 1000000 * samplePeriodSec // for sanity check, max energy delta shouldn't be more than 1000 Watts * samplePeriod
+	samplePeriod    = samplePeriodSec * 1000 * time.Millisecond
+	maxEnergyDelta  = 1000000 * samplePeriodSec // for sanity check, max energy delta shouldn't be more than 1000 Watts * samplePeriod
 )
 
 var (
-	podEnergy      = map[string]*PodEnergy{}
-	nodeEnergy     = map[string]float64{}
-	gpuEnergy      = map[uint32]float64{}
-	currNodeEnergy = &CurrNodeEnergy{}
+	podEnergy         = map[string]*PodEnergy{}
+	nodeEnergy        = map[string]float64{}
+	gpuEnergy         = map[uint32]float64{}
+	currNodeEnergy    = &CurrNodeEnergy{}
 	currPackageEnergy = map[int]source.PackageEnergy{}
-	cpuFrequency   = map[int32]uint64{}
-	nodeName, _    = os.Hostname()
-	cpuArch        = "unknown"
-	acpiPowerMeter = acpi.NewACPIPowerMeter()
-	numCPUs        = runtime.NumCPU()
-	lock           sync.Mutex
+	cpuFrequency      = map[int32]uint64{}
+	nodeName, _       = os.Hostname()
+	cpuArch           = "unknown"
+	acpiPowerMeter    = acpi.NewACPIPowerMeter()
+	numCPUs           = runtime.NumCPU()
+	lock              sync.Mutex
 )
 
 func init() {
@@ -191,8 +191,8 @@ func (c *Collector) reader() {
 					continue
 				}
 
-				coreDelta := float64(energyCore - lastEnergyCore) / samples
-				dramDelta := float64(energyDram - lastEnergyDram) / samples
+				coreDelta := float64(energyCore-lastEnergyCore) / samples
+				dramDelta := float64(energyDram-lastEnergyDram) / samples
 				if coreDelta == 0 && dramDelta == 0 {
 					log.Printf("power reading not changed, retry\n")
 					samples += 1
@@ -281,7 +281,7 @@ func (c *Collector) reader() {
 						podEnergy[podName].CgroupFSStats = make(map[string]*UInt64Stat)
 						podEnergy[podName].CurrCPUTimePerCPU = make(map[uint32]uint64)
 					}
-					
+
 					var activeCPUs []int32
 					if attacher.EnableCPUFreq {
 						avgFreq, totalCPUTime, activeCPUs = getAVGCPUFreqAndTotalCPUTime(cpuFrequency, ct.CPUTime)
@@ -297,7 +297,7 @@ func (c *Collector) reader() {
 						// cannot get CPUTime divided by Frequency, set to total process runtime
 						totalCPUTime = float64(ct.ProcessRunTime)
 					}
-					
+
 					// to prevent overflow of the counts we change the unit to have smaller numbers
 					totalCPUTime = totalCPUTime / 1000
 					podEnergy[podName].CurrCPUTime += totalCPUTime
@@ -324,7 +324,7 @@ func (c *Collector) reader() {
 					}
 					rBytes, wBytes, disks, err := pod_lister.ReadCgroupIOStat(ct.CGroupPID)
 
-					// TO-DO: 
+					// TO-DO:
 					// Use PID instead of CGroupPID and get ContainerID from PID
 					containerID, err := pod_lister.GetContainerIDFromcGroupID(ct.CGroupPID)
 
@@ -332,7 +332,7 @@ func (c *Collector) reader() {
 					cgroupFSStandardStats := cgroup.GetStandardStat(containerID)
 					for cgroupFSKey, cgroupFSValue := range cgroupFSStandardStats {
 						if _, ok := podEnergy[podName].CgroupFSStats[cgroupFSKey]; !ok {
-							podEnergy[podName].CgroupFSStats[cgroupFSKey] = &UInt64Stat {
+							podEnergy[podName].CgroupFSStats[cgroupFSKey] = &UInt64Stat{
 								Curr: cgroupFSValue.(uint64),
 							}
 						} else {
@@ -358,7 +358,7 @@ func (c *Collector) reader() {
 				// reset all counters in the eBPF table
 				c.modules.Table.DeleteAll()
 				totalReadBytes, totalWriteBytes, disks, err := pod_lister.ReadAllCgroupIOStat()
-				
+
 				if err == nil {
 					if totalReadBytes > aggBytesRead && totalWriteBytes > aggBytesWrite {
 						rBytes := totalReadBytes - aggBytesRead
@@ -448,25 +448,25 @@ func (c *Collector) reader() {
 					if v.CurrEnergyInCore > 0 {
 						log.Printf("\tenergy from pod: name: %s namespace: %s \n"+
 							"\teCore: %d(%d) eDram: %d(%d) eOther: %d(%d) eGPU: %d(%d) \n"+
-							"\tCPUTime: %.2f (%.4f) \n" + 
-							"\tcycles: %d (%.4f) \n" +
+							"\tCPUTime: %.2f (%.4f) \n"+
+							"\tcycles: %d (%.4f) \n"+
 							"\tinstructions: %d (%.4f) \n"+
-							"\tDiskReadBytes: %d (%d) \n" +
-							"\tDiskWriteBytes: %d (%d) \n" +
-							"\tmisses: %d (%.4f)\tResidentMemRatio: %.4f\n" +
-							"\tavgCPUFreq: %.4f MHZ\n" +
-							"\tpid: %v comm: %v\n" +
+							"\tDiskReadBytes: %d (%d) \n"+
+							"\tDiskWriteBytes: %d (%d) \n"+
+							"\tmisses: %d (%.4f)\tResidentMemRatio: %.4f\n"+
+							"\tavgCPUFreq: %.4f MHZ\n"+
+							"\tpid: %v comm: %v\n"+
 							"\tcgroupfs: %v\n",
 							podName, v.Namespace,
 							v.CurrEnergyInCore, v.AggEnergyInCore, v.CurrEnergyInDram, v.AggEnergyInDram, v.CurrEnergyInOther, v.AggEnergyInOther, v.CurrEnergyInGPU, v.AggEnergyInGPU,
-							v.CurrCPUTime, float64(v.CurrCPUTime)/float64(aggCPUTime), 
-							v.CurrCPUCycles, float64(v.CurrCPUCycles)/float64(aggCPUCycles), 
+							v.CurrCPUTime, float64(v.CurrCPUTime)/float64(aggCPUTime),
+							v.CurrCPUCycles, float64(v.CurrCPUCycles)/float64(aggCPUCycles),
 							v.CurrCPUInstr, float64(v.CurrCPUInstr)/float64(aggCPUInstr),
-							v.CurrBytesRead, v.AggBytesRead, 
+							v.CurrBytesRead, v.AggBytesRead,
 							v.CurrBytesRead, v.AggBytesWrite,
 							v.CurrCacheMisses, float64(v.CurrCacheMisses)/float64(aggCacheMisses), float64(v.CurrResidentMem)/nodeMem,
 							v.AvgCPUFreq/1000, /*MHZ*/
-							v.PID, v.Command, 
+							v.PID, v.Command,
 							v.CgroupFSStats)
 					}
 				}
@@ -493,7 +493,7 @@ func getAVGCPUFreqAndTotalCPUTime(cpuFrequency map[int32]uint64, cpuTime [C.CPU_
 	}
 	avgFreq := float64(totalFreq / totalCPUTime)
 	if totalCPUTime == 0 {
-		avgFreq = totalFreqWithoutWeight/float64(len(cpuFrequency))
+		avgFreq = totalFreqWithoutWeight / float64(len(cpuFrequency))
 	}
 	return avgFreq, totalCPUTime, activeCPUs
 }

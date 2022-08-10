@@ -4,26 +4,25 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
+	"encoding/json"
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
-	"io/ioutil"
-	"encoding/json"
 	"regexp"
-	"strings"
 	"strconv"
+	"strings"
 )
 
 const (
 	CPU_USAGE_TOTAL_KEY = "cgroupfs_cpu_usage_us"
-	SAMPLE_CURR = 100
-	SAMPLE_AGGR = 1000
-	SAMPLE_NODE_ENERGY = 20000
-	SAMPLE_FREQ = 100000
+	SAMPLE_CURR         = 100
+	SAMPLE_AGGR         = 1000
+	SAMPLE_NODE_ENERGY  = 20000
+	SAMPLE_FREQ         = 100000
 )
- 
 
 func convertPromMetricToMap(body []byte, metric string) map[string]string {
 	regStr := fmt.Sprintf(`%s{[^{}]*}`, metric)
@@ -61,7 +60,6 @@ var _ = Describe("Test Collector Unit", func() {
 		body, _ := ioutil.ReadAll(res.Body)
 		Expect(len(body)).Should(BeNumerically(">", 0))
 
-
 		regStr := fmt.Sprintf(`%s{[^{}]*}`, POD_ENERGY_STAT_METRIC)
 		r := regexp.MustCompile(regStr)
 		match := r.FindString(string(body))
@@ -69,14 +67,14 @@ var _ = Describe("Test Collector Unit", func() {
 
 		podEnergy = map[string]*PodEnergy{
 			"abcd": &PodEnergy{
-				PodName: "podA",
-				Namespace: "default",
+				PodName:         "podA",
+				Namespace:       "default",
 				AggEnergyInCore: 10,
 				CgroupFSStats: map[string]*UInt64Stat{
 					CPU_USAGE_TOTAL_KEY: &UInt64Stat{
 						Curr: SAMPLE_CURR,
 						Aggr: SAMPLE_AGGR,
-					},	
+					},
 				},
 			},
 		}
@@ -86,7 +84,7 @@ var _ = Describe("Test Collector Unit", func() {
 		cpuFrequency = map[int32]uint64{
 			0: SAMPLE_FREQ,
 		}
-		
+
 		res = httptest.NewRecorder()
 		handler = http.Handler(promhttp.Handler())
 		handler.ServeHTTP(res, req)
@@ -96,16 +94,16 @@ var _ = Describe("Test Collector Unit", func() {
 
 		// check sample pod energy stat
 		response := convertPromMetricToMap(body, POD_ENERGY_STAT_METRIC)
-		currSample, found := response["curr_" + CPU_USAGE_TOTAL_KEY]
+		currSample, found := response["curr_"+CPU_USAGE_TOTAL_KEY]
 		Expect(found).To(Equal(true))
 		Expect(currSample).To(Equal(fmt.Sprintf("%d", SAMPLE_CURR)))
-		aggrSample, found := response["total_" + CPU_USAGE_TOTAL_KEY]
+		aggrSample, found := response["total_"+CPU_USAGE_TOTAL_KEY]
 		Expect(found).To(Equal(true))
 		Expect(aggrSample).To(Equal(fmt.Sprintf("%d", SAMPLE_AGGR)))
 		// check sample node energy
 		val, err := convertPromToValue(body, NODE_ENERGY_METRIC)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(val).To(Equal(int(SAMPLE_NODE_ENERGY/1000)))
+		Expect(val).To(Equal(int(SAMPLE_NODE_ENERGY / 1000)))
 		// check sample frequency
 		val, err = convertPromToValue(body, FREQ_METRIC)
 		Expect(err).NotTo(HaveOccurred())

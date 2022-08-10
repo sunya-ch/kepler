@@ -114,7 +114,8 @@ func getContainerInfoFromcGgroupID(cGroupID uint64) (*ContainerInfo, error) {
 func updateListPodCache(targetContainerID string, stopWhenFound bool) {
 	pods, err := podLister.ListPods()
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("cannot update pod cache: %v", err)
+		return
 	}
 	for _, pod := range *pods {
 		statuses := pod.Status.ContainerStatuses

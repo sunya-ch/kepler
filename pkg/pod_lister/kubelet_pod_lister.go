@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 
@@ -68,7 +67,7 @@ func init() {
 func httpGet(url string) (*http.Response, error) {
 	objToken, err := ioutil.ReadFile(saPath)
 	if err != nil {
-		log.Fatalf("failed to read from %q: %v", saPath, err)
+		return nil, fmt.Errorf("failed to read from %q: %v", saPath, err)
 	}
 	token := string(objToken)
 
@@ -101,7 +100,7 @@ func (k *KubeletPodLister) ListPods() (*[]corev1.Pod, error) {
 	podList := corev1.PodList{}
 	err = json.Unmarshal(body, &podList)
 	if err != nil {
-		log.Fatalf("failed to parse response body: %v", err)
+		return nil, fmt.Errorf("failed to parse response body: %v", err)
 	}
 
 	pods := &podList.Items

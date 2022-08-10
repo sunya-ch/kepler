@@ -4,8 +4,10 @@ export TIMESTAMP ?=$(shell echo $(BIN_TIMESTAMP) | tr -d ':' | tr 'T' '-' | tr -
 SOURCE_GIT_TAG :=$(shell git describe --tags --always --abbrev=7 --match 'v*')
 
 SRC_ROOT :=$(shell pwd)
+ESTIMATOR_SRC_ROOT :=$(shell pwd)/estimator
 
 IMAGE_REPO :=quay.io/sustainable_computing_io/kepler
+ESTIMATOR_IMAGE_REPO :=quay.io/sustainable_computing_io/kepler-estimator
 IMAGE_VERSION := "latest"
 OUTPUT_DIR :=_output
 CROSS_BUILD_BINDIR :=$(OUTPUT_DIR)/bin
@@ -92,11 +94,11 @@ ENVTEST_ASSETS_DIR=./test-bin
 export PATH := $(PATH):./test-bin
 GOPATH ?= $(HOME)/go
 
-ginkgo-set:
+ginkgo-set: tidy-vendor
 	mkdir -p ${ENVTEST_ASSETS_DIR}
 	@test -f $(ENVTEST_ASSETS_DIR)/ginkgo || \
-	 (go get -u github.com/onsi/ginkgo/ginkgo && go install github.com/onsi/ginkgo/ginkgo && \
-	  go get -u github.com/onsi/gomega/... && go install github.com/onsi/gomega/... && \
+	 (go get -d github.com/onsi/ginkgo/ginkgo && go install github.com/onsi/ginkgo && \
+	  go get -d github.com/onsi/gomega/... && go install github.com/onsi/gomega/... && \
 	  cp $(GOPATH)/bin/ginkgo $(ENVTEST_ASSETS_DIR)/ginkgo)
 	
 test: ginkgo-set tidy-vendor
