@@ -28,7 +28,14 @@ endif
 
 GO_LD_FLAGS := $(GC_FLAGS) -ldflags "-X $(LD_FLAGS)" $(CFLAGS)
 
-GO_BUILD_FLAGS :=-tags 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo'
+GO_BUILD_TAGS := 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo'
+ifneq ($(shell command -v ldconfig),)
+  ifneq ($(shell ldconfig -p|grep bcc),)
+     GO_BUILD_TAGS = 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo bcc'
+  endif
+endif
+
+GO_BUILD_FLAGS :=-tags ${GO_BUILD_TAGS}
 
 OS := $(shell go env GOOS)
 ARCH := $(shell go env GOARCH)
@@ -90,17 +97,25 @@ build-containerized-cross-build:
 PWD=$(shell pwd)
 ENVTEST_ASSETS_DIR=./test-bin
 export PATH := $(PATH):./test-bin
-GOPATH ?= $(HOME)/go
 
-ginkgo-set:
+ifndef GOPATH
+GOPATH := $(HOME)/go
+GOBIN := $(GOPATH)/bin
+endif
+
+ginkgo-set: tidy-vendor
+	mkdir -p $(GOBIN)
 	mkdir -p ${ENVTEST_ASSETS_DIR}
 	@test -f $(ENVTEST_ASSETS_DIR)/ginkgo || \
-	 (go get -u github.com/onsi/ginkgo/ginkgo && go install github.com/onsi/ginkgo/ginkgo && \
-	  go get -u github.com/onsi/gomega/... && go install github.com/onsi/gomega/... && \
-	  cp $(GOPATH)/bin/ginkgo $(ENVTEST_ASSETS_DIR)/ginkgo)
+	 (go install github.com/onsi/ginkgo/ginkgo@v1.16.5  && \
+	  cp $(GOBIN)/ginkgo $(ENVTEST_ASSETS_DIR)/ginkgo)
 	
 test: ginkgo-set tidy-vendor
-	@go test -v ./...
+	@echo ${GO_BUILD_TAGS}
+	@go test $(GO_BUILD_FLAGS) ./...
+
+test-verbose: ginkgo-set tidy-vendor
+	@go test $(GO_BUILD_FLAGS) -v ./...
 
 clean-cross-build:
 	$(RM) -r '$(CROSS_BUILD_BINDIR)'
