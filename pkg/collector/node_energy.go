@@ -17,21 +17,70 @@ limitations under the License.
 package collector
 
 import (
+	"encoding/csv"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"strconv"
+	"strings"
+
+	"github.com/jszwec/csvutil"
+	"k8s.io/klog/v2"
 
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl/source"
-	"k8s.io/klog/v2"
 )
 
 var (
+	cpuModelDataPath = "/var/lib/kepler/data/normalized_cpu_arch.csv"
+
 	nodeName, _ = os.Hostname()
 	cpuArch     = getCPUArch()
 )
 
+type CPUModelData struct {
+	Name         string `csv:"Name"`
+	Architecture string `csv:"Architecture"`
+}
+
+func getCPUArchitecture() (string, error) {
+	// check if there is a CPU architecture override
+	cpuArchOverride := os.Getenv("CPU_ARCH_OVERRIDE")
+	if len(cpuArchOverride) > 0 {
+		klog.V(2).Infof("cpu arch override: %v\n", cpuArchOverride)
+		return cpuArchOverride, nil
+	}
+	output, err := exec.Command("archspec", "cpu").Output()
+	if err != nil {
+		return "", err
+	}
+	myCPUModel := strings.TrimSuffix(string(output), "\n")
+	file, err := os.Open(cpuModelDataPath)
+	if err != nil {
+		return "", err
+	}
+	reader := csv.NewReader(file)
+
+	dec, err := csvutil.NewDecoder(reader)
+	if err != nil {
+		return "", err
+	}
+
+	for {
+		var p CPUModelData
+		if err := dec.Decode(&p); err == io.EOF {
+			break
+		}
+		if strings.HasPrefix(myCPUModel, p.Name) {
+			return p.Architecture, nil
+		}
+	}
+
+	return "", fmt.Errorf("no CPU power model found for architecture %s", myCPUModel)
+}
+
 func getCPUArch() string {
-	arch, err := source.GetCPUArchitecture()
+	arch, err := getCPUArchitecture()
 	if err == nil {
 		return arch
 	}
@@ -80,7 +129,19 @@ func (v *NodeEnergy) ResetCurr() {
 	v.SensorEnergy.ResetCurr()
 }
 
-func (v *NodeEnergy) SetValues(sensorEnergy map[string]float64, pkgEnergy map[int]source.RAPLEnergy, totalGPUDelta uint64, usage map[string]float64) {
+func (v NodeEnergy) getUsageMap(podMetricValues [][]float64) map[string]float64 {
+	nodeUsageMap := make(map[string]float64)
+	podNumber := len(podMetricValues)
+	for metricIndex, metric := range metricNames {
+		nodeUsageMap[metric] = 0
+		for podIndex := 0; podIndex < podNumber; podIndex++ {
+			nodeUsageMap[metric] += podMetricValues[podIndex][metricIndex]
+		}
+	}
+	return nodeUsageMap
+}
+
+func (v *NodeEnergy) SetValues(sensorEnergy map[string]float64, pkgEnergy map[int]source.RAPLEnergy, totalGPUDelta uint64, podMetricValues [][]float64) {
 	for sensorID, energy := range sensorEnergy {
 		v.SensorEnergy.AddStat(sensorID, uint64(energy))
 	}
@@ -99,7 +160,7 @@ func (v *NodeEnergy) SetValues(sensorEnergy map[string]float64, pkgEnergy map[in
 	if totalSensorDelta > (totalPkgDelta + totalGPUDelta) {
 		v.EnergyInOther = totalSensorDelta - (totalPkgDelta + totalGPUDelta + totalDramDelta)
 	}
-	v.Usage = usage
+	v.Usage = v.getUsageMap(podMetricValues)
 }
 
 func (v *NodeEnergy) ToPrometheusValues() []string {
@@ -145,6 +206,24 @@ func (v *NodeEnergy) GetCurrEnergyPerpkgID(pkgIDKey string) (coreDelta, dramDelt
 	dramDelta = v.EnergyInDRAM.Stat[pkgIDKey].Curr
 	uncoreDelta = v.EnergyInUncore.Stat[pkgIDKey].Curr
 	return
+}
+
+func (v *NodeEnergy) GetNodeComponentPower() source.RAPLPower {
+	coreValue := v.EnergyInCore.Curr()
+	uncoreValue := v.EnergyInUncore.Curr()
+	pkgValue := v.EnergyInPkg.Curr()
+	if pkgValue == 0 {
+		pkgValue = coreValue + uncoreValue
+	}
+	if coreValue == 0 {
+		coreValue = pkgValue - uncoreValue
+	}
+	return source.RAPLPower{
+		Core:   coreValue,
+		Uncore: uncoreValue,
+		Pkg:    pkgValue,
+		DRAM:   v.EnergyInDRAM.Curr(),
+	}
 }
 
 func (v NodeEnergy) String() string {

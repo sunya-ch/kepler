@@ -17,244 +17,231 @@ limitations under the License.
 package model
 
 import (
-	"context"
-	"encoding/csv"
-	"encoding/json"
-	"errors"
-	"io"
-	"math"
-	"net/http"
-	"os"
-	"time"
-
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl/source"
 	"k8s.io/klog/v2"
-
-	"github.com/jszwec/csvutil"
 )
-
-type Coeff struct {
-	Architecture  string  `csv:"architecture"`
-	CPUTime       float64 `csv:"cpu_time"`
-	CPUCycle      float64 `csv:"cpu_cycle"`
-	CPUInstr      float64 `csv:"cpu_instruction"`
-	MemoryUsage   float64 `csv:"memory_usage"`
-	CacheMisses   float64 `csv:"cache_misses"`
-	InterceptCore float64 `csv:"intercept_core"`
-	InterceptDram float64 `csv:"intercept_dram"`
-}
-
-type EnergyPrediction struct {
-	Architecture   string
-	CPUTime        float64
-	CPUCycle       float64
-	CPUInstr       float64
-	ResidentMemory float64
-	CacheMisses    float64
-}
-
-type CategoricalFeature struct {
-	Name   string  `json:"name"`
-	Weight float64 `json:"weight"`
-}
-
-type NormalizedNumericalFeature struct {
-	Mean     float64 `json:"mean"`
-	Variance float64 `json:"variance"`
-	Weight   float64 `json:"weight"`
-}
-
-type CoreModelServerCoeff struct {
-	AllCoreWeights struct {
-		BiasWeight           float64 `json:"Bias_Weight"`
-		CategoricalVariables struct {
-			CPUArchitecture []CategoricalFeature `json:"cpu_architecture"`
-		} `json:"Categorical_Variables"`
-		NumericalVariables struct {
-			CPUCycle NormalizedNumericalFeature `json:"cpu_cycles"`
-			CPUTime  NormalizedNumericalFeature `json:"cpu_time"`
-			CPUInstr NormalizedNumericalFeature `json:"cpu_instr"`
-		} `json:"Numerical_Variables"`
-	} `json:"core_All_Weights"`
-}
-
-type DramModelServerCoeff struct {
-	AllDramWeights struct {
-		BiasWeight           float64 `json:"Bias_Weight"`
-		CategoricalVariables struct {
-			CPUArchitecture []CategoricalFeature `json:"cpu_architecture"`
-		} `json:"Categorical_Variables"`
-		NumericalVariables struct {
-			CacheMisses    NormalizedNumericalFeature `json:"cache_misses"`
-			ResidentMemory NormalizedNumericalFeature `json:"container_memory_working_set_bytes"`
-		} `json:"Numerical_Variables"`
-	} `json:"dram_All_Weights"`
-}
-
-type LinearEnergyModelServerCoeff struct {
-	CoreModelServerCoeff
-	DramModelServerCoeff
-}
 
 var (
-	// obtained the coeff via regression
-	BareMetalCoeff = Coeff{
-		CPUTime:       0.0,
-		CPUCycle:      0.0000005268224465,
-		CPUInstr:      0.0000005484982329,
-		InterceptCore: 152121.0472,
-
-		MemoryUsage:   0.0,
-		CacheMisses:   0.000004112383656,
-		InterceptDram: -23.70284983,
+	ModelOutputTypeConverter = []string{
+		"AbsPower", "AbsModelWeight", "AbsComponentPower", "AbsComponentModelWeight", "DynPower", "DynModelWeight", "DynComponentPower", "DynComponentModelWeight",
 	}
-	// if per counters are not avail on VMs, don't use them
-	VMCoeff = Coeff{
-		CPUTime:     1.0,
-		CPUCycle:    0,
-		CPUInstr:    0,
-		MemoryUsage: 1.0,
-		CacheMisses: 0,
-	}
-	RunTimeCoeff Coeff
 
-	modelServerEndpoint string
+	NodeTotalPowerModelValid, NodeComponentPowerModelValid, PodTotalPowerModelValid, PodComponentPowerModelValid bool
+	EstimatorSidecarSocket                                                                                       = "/tmp/estimator.sock"
 
-	powerModelPath = "/var/lib/kepler/data/power_model.csv"
+	/////////////////////////////////////////////////////
+	// TODO: be configured by config package
+	modelServerEndpoint = "http://kepler-model-server.monitoring.cluster.local:8100/model"
+	// cgroupOnly
+	dynCompURL = "https://raw.githubusercontent.com/sustainable-computing-io/kepler-model-server/main/tests/test_models/DynComponentModelWeight/CgroupOnly/ScikitMixed/ScikitMixed.json"
+
+	NodeTotalPowerModelConfig     = ModelConfig{UseEstimatorSidecar: false}
+	NodeComponentPowerModelConfig = ModelConfig{UseEstimatorSidecar: false}
+	PodTotalPowerModelConfig      = ModelConfig{UseEstimatorSidecar: false}
+	PodComponentPowerModelConfig  = ModelConfig{UseEstimatorSidecar: false, InitModelURL: dynCompURL}
+
+	NodeTotalPowerModelFunc, PodTotalPowerModelFunc         func([][]float64, []string) ([]float64, error)
+	NodeComponentPowerModelFunc, PodComponentPowerModelFunc func([][]float64, []string) (map[string][]float64, error)
+	
+	/////////////////////////////////////////////////////
 )
 
-func SetVMCoeff() {
-	RunTimeCoeff = VMCoeff
+// InitEstimateFunctions checks validity of power model and set estimate functions
+func InitEstimateFunctions(usageMetrics, systemFeatures, systemValues []string) {
+	var estimateFunc interface{}
+	// init func for NodeTotalPower
+	NodeTotalPowerModelValid, estimateFunc = initEstimateFunction(NodeTotalPowerModelConfig, AbsPower, AbsModelWeight, usageMetrics, systemFeatures, systemValues, true)
+	if NodeTotalPowerModelValid {
+		NodeTotalPowerModelFunc = estimateFunc.(func([][]float64, []string) ([]float64, error))
+	}
+	// init func for NodeComponentPower
+	NodeComponentPowerModelValid, estimateFunc = initEstimateFunction(NodeComponentPowerModelConfig, AbsComponentPower, AbsComponentModelWeight, usageMetrics, systemFeatures, systemValues, false)
+	if NodeComponentPowerModelValid {
+		NodeComponentPowerModelFunc = estimateFunc.(func([][]float64, []string) (map[string][]float64, error))
+	}
+	// init func for PodTotalPower
+	PodTotalPowerModelValid, estimateFunc = initEstimateFunction(PodTotalPowerModelConfig, DynPower, DynModelWeight, usageMetrics, systemFeatures, systemValues, true)
+	if PodTotalPowerModelValid {
+		PodTotalPowerModelFunc = estimateFunc.(func([][]float64, []string) ([]float64, error))
+	}
+	// init func for PodComponentPower
+	PodComponentPowerModelValid, estimateFunc = initEstimateFunction(PodComponentPowerModelConfig, DynComponentPower, DynComponentModelWeight, usageMetrics, systemFeatures, systemValues, false)
+	if PodComponentPowerModelValid {
+		PodComponentPowerModelFunc = estimateFunc.(func([][]float64, []string) (map[string][]float64, error))
+	}
 }
 
-func SetBMCoeff() {
-	// use the default one if no model found
-	RunTimeCoeff = BareMetalCoeff
+// initEstimateFunction called by InitEstimateFunctions for each power model
+func initEstimateFunction(modelConfig ModelConfig, archiveType, modelWeightType ModelOutputType, usageMetrics, systemFeatures, systemValues []string, isTotalPower bool) (valid bool, estimateFunc interface{}) {
+	if modelConfig.UseEstimatorSidecar {
+		// try init EstimatorSidecarConnector
+		c := EstimatorSidecarConnector{
+			Socket:         EstimatorSidecarSocket,
+			UsageMetrics:   usageMetrics,
+			OutputType:     archiveType,
+			SystemFeatures: systemFeatures,
+			ModelName:      modelConfig.SelectedModel,
+			SelectFilter:   modelConfig.SelectFilter,
+		}
+		valid = c.Init(systemValues)
+		if valid {
+			if isTotalPower {
+				estimateFunc = c.GetTotalPower
+			} else {
+				estimateFunc = c.GetComponentPower
+			}
+			return
+		}
+	}
+	// set UseEstimatorSidecar to false as cannot init valid EstimatorSidecarConnector
+	modelConfig.UseEstimatorSidecar = false
+	r := LinearRegressor{
+		Endpoint:       modelServerEndpoint,
+		UsageMetrics:   usageMetrics,
+		OutputType:     modelWeightType,
+		SystemFeatures: systemFeatures,
+		ModelName:      modelConfig.SelectedModel,
+		SelectFilter:   modelConfig.SelectFilter,
+		InitModelURL:   modelConfig.InitModelURL,
+	}
+	valid = r.Init()
+	if isTotalPower {
+		estimateFunc = r.GetTotalPower
+	} else {
+		estimateFunc = r.GetComponentPower
+	}
+	return valid, estimateFunc
+}
 
-	arch, err := source.GetCPUArchitecture()
-	if err == nil {
-		cpuArch := arch
-		file, err := os.Open(powerModelPath)
-		if err == nil {
-			reader := csv.NewReader(file)
+func GetNodeTotalPower(usageValues []float64, systemValues []string) (valid bool, value uint64) {
+	valid = false
+	value = 0
+	if NodeTotalPowerModelValid {
+		powers, err := NodeTotalPowerModelFunc([][]float64{usageValues}, systemValues)
+		if err != nil || len(powers) == 0 {
+			return
+		}
+		valid = true
+		value = uint64(powers[0])
+		return
+	}
+	return
+}
 
-			dec, err := csvutil.NewDecoder(reader)
-			if err == nil {
-				for {
-					var p Coeff
-					if err := dec.Decode(&p); err == io.EOF {
-						break
-					}
-					if p.Architecture == cpuArch {
-						klog.V(3).Infof("use model %v\n", p)
-						RunTimeCoeff = p
-					}
-				}
+func GetNodeComponentPowers(usageValues []float64, systemValues []string) (valid bool, results source.RAPLPower) {
+	results = source.RAPLPower{}
+	valid = false
+	if NodeComponentPowerModelValid {
+		powers, err := NodeComponentPowerModelFunc([][]float64{usageValues}, systemValues)
+		if err != nil {
+			return
+		}
+		pkgPower := getComponentPower(powers, "pkg", 0)
+		corePower := getComponentPower(powers, "core", 0)
+		uncorePower := getComponentPower(powers, "uncore", 0)
+		dramPower := getComponentPower(powers, "dram", 0)
+		valid = true
+		results = fillRAPLPower(pkgPower, corePower, uncorePower, dramPower)
+		return
+	}
+	return
+}
+
+func GetPodPowers(usageValues [][]float64, systemValues []string, nodeTotalPower, totalGPUPower uint64, nodeComponentPower source.RAPLPower) (componentPodPowers []source.RAPLPower, otherPodPowers []uint64) {
+	if nodeComponentPower.Pkg > 0 {
+		if nodeTotalPower < nodeComponentPower.Pkg+nodeComponentPower.DRAM+totalGPUPower {
+			// case: NodeTotalPower is invalid but NodeComponentPower model is available, set = pkg+DRAM+GPU
+			nodeTotalPower = nodeComponentPower.Pkg + nodeComponentPower.DRAM + totalGPUPower
+		}
+	} else if nodeTotalPower > 0 {
+		// case: no NodeComponentPower model but NodeTotalPower model is available, set = total-GPU, DRAM=0
+		socketPower := nodeTotalPower - totalGPUPower
+		nodeComponentPower = source.RAPLPower{
+			Pkg:  socketPower,
+			Core: socketPower,
+		}
+	}
+
+	if nodeTotalPower > 0 {
+		// total power all set, use ratio
+		sumMetricValues := GetSumMetricValues(usageValues)
+		nodeOtherPower := nodeTotalPower - nodeComponentPower.Pkg - nodeComponentPower.DRAM - totalGPUPower
+		componentPodPowers, otherPodPowers = GetPodPowerRatio(usageValues, nodeOtherPower, nodeComponentPower, sumMetricValues)
+	} else {
+		// otherwise, use trained power model
+		totalPowerValid, totalPodPowers := getPodTotalPower(usageValues, systemValues)
+		var valid bool
+		valid, componentPodPowers = getPodComponentPowers(usageValues, systemValues)
+		if !valid {
+			klog.V(5).Infoln("No PodComponentPower Model")
+			return
+		}
+		otherPodPowers = make([]uint64, len(componentPodPowers))
+		if totalPowerValid {
+			for index, componentPower := range componentPodPowers {
+				// TODO: include GPU into consideration
+				otherPodPowers[index] = uint64(totalPodPowers[index]) - componentPower.Pkg - componentPower.DRAM
 			}
 		}
 	}
+	return componentPodPowers, otherPodPowers
 }
 
-func SetRuntimeCoeff(coeff Coeff) {
-	RunTimeCoeff = coeff
-}
-
-func SetModelServerEndpoint(ep string) {
-	modelServerEndpoint = ep
-}
-
-func getRequest(ctx context.Context, endpoint string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, http.NoBody)
-	if err != nil {
-		return nil, errors.New("could not create request for Model Server Endpoint " + endpoint)
-	}
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, errors.New("request for Model Server Endpoint failed " + endpoint)
-	}
-	return res, nil
-}
-
-func GetCoeffFromModelServer() (*LinearEnergyModelServerCoeff, error) {
-	if modelServerEndpoint == "" {
-		return nil, nil
-	}
-	timeout := time.Minute * 3
-	requestCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	coreRes, coreErr := getRequest(requestCtx, modelServerEndpoint+"/model-weights/")
-	dramRes, dramErr := getRequest(requestCtx, modelServerEndpoint+"/model-weights/dram_model")
-	if coreErr != nil {
-		return nil, coreErr
-	}
-	if dramErr != nil {
-		return nil, dramErr
-	}
-	var coreModelServerCoeff CoreModelServerCoeff
-	var dramModelServerCoeff DramModelServerCoeff
-	coreBodyError := json.NewDecoder(coreRes.Body).Decode(&coreModelServerCoeff)
-	dramBodyError := json.NewDecoder(dramRes.Body).Decode(&dramModelServerCoeff)
-	defer coreRes.Body.Close()
-	defer dramRes.Body.Close()
-	if coreBodyError != nil || dramBodyError != nil {
-		return nil, errors.New("failed to parse response body")
-	}
-	energyModelServerCoeff := LinearEnergyModelServerCoeff{coreModelServerCoeff, dramModelServerCoeff}
-	return &energyModelServerCoeff, nil
-}
-
-// Retrieve corresponding coefficient given Categorical Feature name
-
-func retrieveCoeffForCategoricalVariable(categoricalPrediction string, allCategoricalFeatures []CategoricalFeature) (float64, error) {
-	for _, architecture := range allCategoricalFeatures {
-		if architecture.Name == categoricalPrediction {
-			return architecture.Weight, nil
+func getPodTotalPower(usageValues [][]float64, systemValues []string) (valid bool, results []float64) {
+	valid = false
+	if PodTotalPowerModelValid {
+		powers, err := PodTotalPowerModelFunc(usageValues, systemValues)
+		if err != nil || len(powers) == 0 {
+			return
 		}
+		results = powers
+		valid = true
+		return
 	}
-	return -1, errors.New("architecture feature does not exist")
+	return
 }
 
-// Using Direct Access instead of Dynamic lookup to retrieve Numerical Weights. Direct access is more efficient and easier
-// to implement, but it makes the code less flexible if more fields need to be added to DramModelServerCoeff or
-// CoreModelServerCoeff.
-
-func predictLinearDramEnergyConsumption(prediction *EnergyPrediction, dramModelServerCoeff *DramModelServerCoeff) (float64, error) {
-	var energyPrediction float64 = 0
-	dramCPUArchitectureWeights := dramModelServerCoeff.AllDramWeights.CategoricalVariables.CPUArchitecture
-	numericalWeights := dramModelServerCoeff.AllDramWeights.NumericalVariables
-	biasWeight := dramModelServerCoeff.AllDramWeights.BiasWeight
-	energyPrediction += biasWeight
-	weightRes, err := retrieveCoeffForCategoricalVariable(prediction.Architecture, dramCPUArchitectureWeights)
-	if err != nil {
-		return -1, err
+func getPodComponentPowers(usageValues [][]float64, systemValues []string) (bool, []source.RAPLPower) {
+	if PodComponentPowerModelValid {
+		powers, err := PodComponentPowerModelFunc(usageValues, systemValues)
+		if err != nil {
+			return false, []source.RAPLPower{}
+		}
+		podNumber := len(usageValues)
+		raplPowers := make([]source.RAPLPower, podNumber)
+		for index := 0; index < podNumber; index++ {
+			pkgPower := getComponentPower(powers, "pkg", index)
+			corePower := getComponentPower(powers, "core", index)
+			uncorePower := getComponentPower(powers, "uncore", index)
+			dramPower := getComponentPower(powers, "dram", index)
+			raplPowers[index] = fillRAPLPower(pkgPower, corePower, uncorePower, dramPower)
+		}
+		return true, raplPowers
 	}
-	energyPrediction += weightRes
-	// Normalize each Numerical Feature's prediction given Keras calculated Mean and Variance.
-	normalizedCacheMissPredict := (prediction.CacheMisses - numericalWeights.CacheMisses.Mean) / math.Sqrt(numericalWeights.CacheMisses.Variance)
-	energyPrediction += numericalWeights.CacheMisses.Weight * normalizedCacheMissPredict
-	normalizedResidentMemoryPredict := (prediction.ResidentMemory - numericalWeights.ResidentMemory.Mean) / math.Sqrt(numericalWeights.ResidentMemory.Variance)
-	energyPrediction += numericalWeights.ResidentMemory.Weight * normalizedResidentMemoryPredict
-	return energyPrediction, nil
+	return false, []source.RAPLPower{}
 }
 
-func predictLinearCoreEnergyConsumption(prediction *EnergyPrediction, coreModelServerCoeff *CoreModelServerCoeff) (float64, error) {
-	var energyPrediction float64 = 0
-	coreCPUArchitectureWeights := coreModelServerCoeff.AllCoreWeights.CategoricalVariables.CPUArchitecture
-	numericalWeights := coreModelServerCoeff.AllCoreWeights.NumericalVariables
-	biasWeight := coreModelServerCoeff.AllCoreWeights.BiasWeight
-	energyPrediction += biasWeight
-	weightRes, err := retrieveCoeffForCategoricalVariable(prediction.Architecture, coreCPUArchitectureWeights)
-	if err != nil {
-		return -1, err
+// getComponentPower checks if component key is present in powers response and fills with single 0
+func getComponentPower(powers map[string][]float64, componentKey string, index int) uint64 {
+	values := powers[componentKey]
+	if index >= len(values) {
+		return 0
+	} else {
+		return uint64(values[index])
 	}
-	energyPrediction += weightRes
-	// Normalize each Numerical Feature's prediction given Keras calculated Mean and Variance.
-	normalizedCPUTimePredict := (prediction.CPUTime - numericalWeights.CPUTime.Mean) / math.Sqrt(numericalWeights.CPUTime.Variance)
-	energyPrediction += numericalWeights.CPUTime.Weight * normalizedCPUTimePredict
-	normalizedCPUCyclePredict := (prediction.CPUCycle - numericalWeights.CPUCycle.Mean) / math.Sqrt(numericalWeights.CPUCycle.Variance)
-	energyPrediction += numericalWeights.CPUCycle.Weight * normalizedCPUCyclePredict
-	normalizedCPUInstrPredict := (prediction.CPUInstr - numericalWeights.CPUInstr.Mean) / math.Sqrt(numericalWeights.CPUInstr.Variance)
-	energyPrediction += numericalWeights.CPUInstr.Weight * normalizedCPUInstrPredict
-	return energyPrediction, nil
+}
+
+func fillRAPLPower(pkgPower, corePower, uncorePower, dramPower uint64) source.RAPLPower {
+	if pkgPower < corePower+uncorePower {
+		pkgPower = corePower + uncorePower
+	}
+	if corePower == 0 {
+		corePower = pkgPower - uncorePower
+	}
+	return source.RAPLPower{
+		Core:   corePower,
+		Uncore: uncorePower,
+		DRAM:   dramPower,
+		Pkg:    pkgPower,
+	}
 }

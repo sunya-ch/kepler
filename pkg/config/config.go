@@ -55,6 +55,8 @@ var (
 	GeneralUsageMetric    = "curr_cpu_cycles" // for uncategorized energy; pkg - core - uncore
 
 	versionRegex = regexp.MustCompile(`^(\d+)\.(\d+).`)
+
+	ModelServerEndpoint   = ""
 )
 
 // EnableEBPFCgroupID enables the eBPF code to collect cgroup id if the system has kernel version > 4.18
@@ -129,4 +131,8 @@ func GetCGroupVersion() int {
 func SetEstimatorConfig(modelName, selectFilter string) {
 	EstimatorModel = modelName
 	EstimatorSelectFilter = selectFilter
+}
+
+func SetModelServerEndpoint(serverEndpoint string) {
+	ModelServerEndpoint = serverEndpoint
 }
