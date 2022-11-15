@@ -167,8 +167,10 @@ func findExampleContainerID(slice *SliceHandler) string {
 func GetAvailableCgroupMetrics() []string {
 	var availableMetrics []string
 	containerID := findExampleContainerID(SliceHandlerInstance)
+	klog.V(3).Infof("Sampled ContainerID: %s", containerID)
 	TryInitStatReaders(containerID)
 	stats := GetStandardStat(containerID)
+	klog.V(3).Infof("Sampled Stat: %v", stats)
 	for metric := range stats {
 		availableMetrics = append(availableMetrics, metric)
 	}
