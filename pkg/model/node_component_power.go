@@ -17,6 +17,7 @@ limitations under the License.
 package model
 
 import (
+	"github.com/sustainable-computing-io/kepler/pkg/config"
 	"github.com/sustainable-computing-io/kepler/pkg/model/types"
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl/source"
 )
@@ -26,7 +27,7 @@ var (
 	NodeComponentPowerModelFunc  func([][]float64, []string) (map[string][]float64, error)
 
 	// TODO: be configured by config package
-	NodeComponentPowerModelConfig types.ModelConfig = types.ModelConfig{UseEstimatorSidecar: false}
+	NodeComponentPowerModelConfig types.ModelConfig = InitModelConfig(config.NodeComponentsKey)
 )
 
 func InitNodeComponentPowerEstimator(usageMetrics, systemFeatures, systemValues []string) {

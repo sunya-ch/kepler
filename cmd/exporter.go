@@ -47,7 +47,6 @@ var (
 	address                      = flag.String("address", "0.0.0.0:8888", "bind address")
 	metricsPath                  = flag.String("metrics-path", "/metrics", "metrics path")
 	enableGPU                    = flag.Bool("enable-gpu", false, "whether enable gpu (need to have libnvidia-ml installed)")
-	modelServerEndpoint          = flag.String("model-server-endpoint", "", "model server endpoint")
 	enabledEBPFCgroupID          = flag.Bool("enable-cgroup-id", true, "whether enable eBPF to collect cgroup id (must have kernel version >= 4.18 and cGroup v2)")
 	exposeHardwareCounterMetrics = flag.Bool("expose-hardware-counter-metrics", true, "whether expose hardware counter as prometheus metrics")
 )
@@ -79,11 +78,6 @@ func main() {
 	config.SetEnabledGPU(*enableGPU)
 
 	cgroup.SetSliceHandler()
-
-	if modelServerEndpoint != nil {
-		klog.Infof("Initializing the Model Server")
-		config.SetModelServerEndpoint(*modelServerEndpoint)
-	}
 	collector_metric.InitAvailableParamAndMetrics()
 
 	if *enableGPU {

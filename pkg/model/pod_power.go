@@ -17,6 +17,7 @@ limitations under the License.
 package model
 
 import (
+	"github.com/sustainable-computing-io/kepler/pkg/config"
 	"github.com/sustainable-computing-io/kepler/pkg/model/estimator/local"
 	"github.com/sustainable-computing-io/kepler/pkg/model/types"
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl/source"
@@ -28,11 +29,8 @@ var (
 	PodTotalPowerModelFunc                               func([][]float64, []string) ([]float64, error)
 	PodComponentPowerModelFunc                           func([][]float64, []string) (map[string][]float64, error)
 
-	// TODO: be configured by config package
-	// cgroupOnly
-	dynCompURL                                     = "https://raw.githubusercontent.com/sustainable-computing-io/kepler-model-server/main/tests/test_models/DynComponentModelWeight/CgroupOnly/ScikitMixed/ScikitMixed.json"
-	PodTotalPowerModelConfig     types.ModelConfig = types.ModelConfig{UseEstimatorSidecar: false}
-	PodComponentPowerModelConfig types.ModelConfig = types.ModelConfig{UseEstimatorSidecar: false, InitModelURL: dynCompURL}
+	PodTotalPowerModelConfig     types.ModelConfig = InitModelConfig(config.PodTotalKey)
+	PodComponentPowerModelConfig types.ModelConfig = InitModelConfig(config.PodComponentsKey)
 )
 
 func InitPodPowerEstimator(usageMetrics, systemFeatures, systemValues []string) {

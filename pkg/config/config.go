@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"golang.org/x/sys/unix"
 	"k8s.io/klog/v2"
@@ -63,8 +64,25 @@ var (
 
 	versionRegex = regexp.MustCompile(`^(\d+)\.(\d+).`)
 
-	ModelServerEndpoint = ""
-	configPath          = "/etc/config"
+	configPath = "/etc/config"
+
+	////////////////////////////////////
+	ModelServerEnable   = strings.ToLower(getConfig("MODEL_SERVER_ENABLE", "false")) == "true"
+	ModelServerEndpoint = getConfig("MODEL_SERVER_ENDPOINT", "")
+	// for model config
+	ModelConfigValues = getModelConfigMap()
+	// model_item
+	NodeTotalKey      = "NODE_TOTAL"
+	NodeComponentsKey = "NODE_COMPONENTS"
+	PodTotalKey       = "POD_TOTAL"
+	PodComponentsKey  = "POD_COMPONENTS"
+
+	//  attribute
+	EstimatorEnabledKey = "ESTIMATOR"
+	InitModelURLKey     = "INIT_URL"
+	FixedModelNameKey   = "MODEL"
+	ModelFiltersKey     = "FILTERS"
+	////////////////////////////////////
 )
 
 func getConfig(configKey, defaultValue string) (result string) {
@@ -168,4 +186,33 @@ func SetEstimatorConfig(modelName, selectFilter string) {
 
 func SetModelServerEndpoint(serverEndpoint string) {
 	ModelServerEndpoint = serverEndpoint
+}
+
+func getModelConfigMap() map[string]string {
+	configMap := make(map[string]string)
+	modelConfigStr := getConfig("MODEL_CONFIG", "")
+	lines := strings.Fields(modelConfigStr)
+	for _, line := range lines {
+		values := strings.Split(line, "=")
+		if len(values) == 2 {
+			configMap[values[0]] = values[1]
+		}
+	}
+	return configMap
+}
+
+func getModelConfigKey(modelItem, attribute string) string {
+	return fmt.Sprintf("%s_%s", modelItem, attribute)
+}
+
+func GetModelConfig(modelItem string) (useEstimatorSidecar bool, selectedModel, selectFilter, initModelURL string) {
+	defaultValue := ""
+	useEstimatorSidecarStr := getConfig(ModelConfigValues[getModelConfigKey(modelItem, EstimatorEnabledKey)], defaultValue)
+	if strings.EqualFold(useEstimatorSidecarStr, "true") {
+		useEstimatorSidecar = true
+	}
+	selectedModel = getConfig(ModelConfigValues[getModelConfigKey(modelItem, FixedModelNameKey)], defaultValue)
+	selectFilter = getConfig(ModelConfigValues[getModelConfigKey(modelItem, ModelFiltersKey)], defaultValue)
+	initModelURL = getConfig(ModelConfigValues[getModelConfigKey(modelItem, InitModelURLKey)], defaultValue)
+	return
 }

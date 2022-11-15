@@ -17,6 +17,7 @@ limitations under the License.
 package model
 
 import (
+	"github.com/sustainable-computing-io/kepler/pkg/config"
 	"github.com/sustainable-computing-io/kepler/pkg/model/types"
 )
 
@@ -25,7 +26,7 @@ var (
 	NodeTotalPowerModelFunc  func([][]float64, []string) ([]float64, error)
 
 	// TODO: be configured by config package
-	NodeTotalPowerModelConfig types.ModelConfig = types.ModelConfig{UseEstimatorSidecar: false}
+	NodeTotalPowerModelConfig types.ModelConfig = InitModelConfig(config.NodeTotalKey)
 )
 
 func InitNodeTotalPowerEstimator(usageMetrics, systemFeatures, systemValues []string) {

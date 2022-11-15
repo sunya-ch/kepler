@@ -17,6 +17,7 @@ limitations under the License.
 package model
 
 import (
+	"github.com/sustainable-computing-io/kepler/pkg/config"
 	"github.com/sustainable-computing-io/kepler/pkg/model/estimator/local"
 	"github.com/sustainable-computing-io/kepler/pkg/model/estimator/sidecar"
 	"github.com/sustainable-computing-io/kepler/pkg/model/types"
@@ -104,4 +105,9 @@ func fillRAPLPower(pkgPower, corePower, uncorePower, dramPower uint64) source.RA
 		DRAM:   dramPower,
 		Pkg:    pkgPower,
 	}
+}
+
+func InitModelConfig(modelItem string) types.ModelConfig {
+	useEstimatorSidecar, selectedModel, selectFilter, initModelURL := config.GetModelConfig(modelItem)
+	return types.ModelConfig{UseEstimatorSidecar: useEstimatorSidecar, SelectedModel: selectedModel, SelectFilter: selectFilter, InitModelURL: initModelURL}
 }
