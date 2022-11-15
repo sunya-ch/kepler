@@ -18,7 +18,6 @@ package metric
 
 import (
 	"github.com/sustainable-computing-io/kepler/pkg/attacher"
-	"github.com/sustainable-computing-io/kepler/pkg/config"
 	"github.com/sustainable-computing-io/kepler/pkg/model"
 
 	"k8s.io/klog/v2"
@@ -76,11 +75,7 @@ func getEstimatorMetrics() []string {
 	// TO-DO: remove this hard code metric
 	names = append(names, blockDeviceLabel)
 	ratio.InitMetricIndexes(names)
-
-	// do not try to inilialize estimator if it was not configured
-	if config.ModelServerEndpoint != "" {
-		model.InitEstimateFunctions(names, NodeMetadataNames, NodeMetadataValues)
-	}
+	model.InitEstimateFunctions(names, NodeMetadataNames, NodeMetadataValues)
 
 	return names
 }

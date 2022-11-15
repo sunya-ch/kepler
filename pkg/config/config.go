@@ -198,6 +198,7 @@ func getModelConfigMap() map[string]string {
 			configMap[values[0]] = values[1]
 		}
 	}
+	klog.V(3).Infof("Model ConfigValues: %v", configMap)
 	return configMap
 }
 
@@ -206,13 +207,12 @@ func getModelConfigKey(modelItem, attribute string) string {
 }
 
 func GetModelConfig(modelItem string) (useEstimatorSidecar bool, selectedModel, selectFilter, initModelURL string) {
-	defaultValue := ""
-	useEstimatorSidecarStr := getConfig(ModelConfigValues[getModelConfigKey(modelItem, EstimatorEnabledKey)], defaultValue)
+	useEstimatorSidecarStr := ModelConfigValues[getModelConfigKey(modelItem, EstimatorEnabledKey)]
 	if strings.EqualFold(useEstimatorSidecarStr, "true") {
 		useEstimatorSidecar = true
 	}
-	selectedModel = getConfig(ModelConfigValues[getModelConfigKey(modelItem, FixedModelNameKey)], defaultValue)
-	selectFilter = getConfig(ModelConfigValues[getModelConfigKey(modelItem, ModelFiltersKey)], defaultValue)
-	initModelURL = getConfig(ModelConfigValues[getModelConfigKey(modelItem, InitModelURLKey)], defaultValue)
+	selectedModel = ModelConfigValues[getModelConfigKey(modelItem, FixedModelNameKey)]
+	selectFilter = ModelConfigValues[getModelConfigKey(modelItem, ModelFiltersKey)]
+	initModelURL = ModelConfigValues[getModelConfigKey(modelItem, InitModelURLKey)]
 	return
 }

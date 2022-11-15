@@ -19,7 +19,7 @@ package source
 type PowerDummy struct{}
 
 func (r *PowerDummy) IsSupported() bool {
-	return true
+	return false
 }
 
 func (r *PowerDummy) StopPower() {

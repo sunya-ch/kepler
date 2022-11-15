@@ -22,6 +22,7 @@ import (
 	"github.com/sustainable-computing-io/kepler/pkg/model/estimator/sidecar"
 	"github.com/sustainable-computing-io/kepler/pkg/model/types"
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl/source"
+	"k8s.io/klog/v2"
 )
 
 var (
@@ -57,6 +58,7 @@ func initEstimateFunction(modelConfig types.ModelConfig, archiveType, modelWeigh
 			} else {
 				estimateFunc = c.GetComponentPower
 			}
+			klog.V(3).Infof("Model %s initiated", archiveType.String())
 			return
 		}
 	}
@@ -78,6 +80,7 @@ func initEstimateFunction(modelConfig types.ModelConfig, archiveType, modelWeigh
 	} else {
 		estimateFunc = r.GetComponentPower
 	}
+	klog.V(3).Infof("Model %s initiated (%v)", modelWeightType.String(), valid)
 	return valid, estimateFunc
 }
 
@@ -109,5 +112,7 @@ func fillRAPLPower(pkgPower, corePower, uncorePower, dramPower uint64) source.RA
 
 func InitModelConfig(modelItem string) types.ModelConfig {
 	useEstimatorSidecar, selectedModel, selectFilter, initModelURL := config.GetModelConfig(modelItem)
-	return types.ModelConfig{UseEstimatorSidecar: useEstimatorSidecar, SelectedModel: selectedModel, SelectFilter: selectFilter, InitModelURL: initModelURL}
+	modelConfig := types.ModelConfig{UseEstimatorSidecar: useEstimatorSidecar, SelectedModel: selectedModel, SelectFilter: selectFilter, InitModelURL: initModelURL}
+	klog.V(3).Infof("Model Config %s: %v", modelItem, modelConfig)
+	return modelConfig
 }
