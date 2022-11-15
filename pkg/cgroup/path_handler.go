@@ -26,12 +26,9 @@ import (
 )
 
 func SearchByContainerID(topFolder, containerID string) string {
-	found := filepath.Walk(topFolder,
-		func(path string, info os.FileInfo, err error) error {
-			if path == topFolder {
-				return nil
-			}
-			if strings.Contains(path, containerID) {
+	found := filepath.WalkDir(topFolder,
+		func(path string, info os.DirEntry, err error) error {
+			if strings.Contains(info.Name(), containerID) {
 				return errors.New(path)
 			}
 			return nil

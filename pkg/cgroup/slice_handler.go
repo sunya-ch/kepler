@@ -34,8 +34,9 @@ import (
 )
 
 const (
-	sliceSuffix = ".slice"
-	scopeSuffix = ".scope"
+	sliceSuffix  = ".slice"
+	scopeSuffix  = ".scope"
+	kubePodSlice = "kubepods.slice"
 )
 
 var (
@@ -111,9 +112,9 @@ func InitSliceHandler() *SliceHandler {
 		}
 	} else {
 		handler = &SliceHandler{
-			CPUTopPath:    filepath.Join(baseCGroupPath, "cpu"),
-			MemoryTopPath: filepath.Join(baseCGroupPath, "memory"),
-			IOTopPath:     filepath.Join(baseCGroupPath, "blkio"),
+			CPUTopPath:    filepath.Join(baseCGroupPath, "cpu", kubePodSlice),
+			MemoryTopPath: filepath.Join(baseCGroupPath, "memory", kubePodSlice),
+			IOTopPath:     filepath.Join(baseCGroupPath, "blkio", kubePodSlice),
 		}
 	}
 	handler.Init()
@@ -143,20 +144,9 @@ func GetStandardStat(containerID string) map[string]interface{} {
 	return convertToStandard(stats)
 }
 
-func findContainerScope(path string) string {
-	if strings.Contains(path, scopeSuffix) {
-		return path
-	}
-	slicePath := SearchByContainerID(path, sliceSuffix)
-	if slicePath == "" {
-		return ""
-	}
-	return findContainerScope(slicePath)
-}
-
 func findExampleContainerID(slice *SliceHandler) string {
 	topPath := slice.GetCPUTopPath()
-	containerScopePath := findContainerScope(topPath)
+	containerScopePath := SearchByContainerID(topPath, scopeSuffix)
 	pathSplits := strings.Split(containerScopePath, "/")
 	fileName := pathSplits[len(pathSplits)-1]
 	scopeSplit := strings.Split(fileName, ".scope")[0]
@@ -166,6 +156,7 @@ func findExampleContainerID(slice *SliceHandler) string {
 
 func GetAvailableCgroupMetrics() []string {
 	var availableMetrics []string
+	klog.V(3).Infof("SliceHandlerInstance: %v \n", SliceHandlerInstance)
 	containerID := findExampleContainerID(SliceHandlerInstance)
 	klog.V(3).Infof("Sampled ContainerID: %s", containerID)
 	TryInitStatReaders(containerID)

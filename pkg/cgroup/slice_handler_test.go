@@ -24,13 +24,14 @@ import (
 )
 
 var testPaths []string = []string{
-	"./test/hierarchypath", "./test/toppath/kubepod", "./test/toppath/system",
+	"./test/hierachywithqos", "./test/hierarchypath", "./test/toppath/kubepod", "./test/toppath/system",
 }
 
 var expectedStandardStats map[string]int = map[string]int{
 	testPaths[0]: 6,
 	testPaths[1]: 6,
 	testPaths[2]: 6,
+	testPaths[3]: 6,
 }
 
 func initSliceHandler(basePath string) *SliceHandler {
