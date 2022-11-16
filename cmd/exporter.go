@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/sustainable-computing-io/kepler/pkg/cgroup"
@@ -60,6 +61,8 @@ func healthProbe(w http.ResponseWriter, req *http.Request) {
 }
 
 func finalizing() {
+	stack := "exit stack: \n" + string(debug.Stack())
+	klog.Infof(stack)
 	exitCode := 10
 	klog.Infoln(finishingMsg)
 	klog.FlushAndExit(klog.ExitFlushTimeout, exitCode)
