@@ -36,6 +36,12 @@ kubectl apply -f https://raw.githubusercontent.com/sunya-ch/kepler/model-dev/man
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/sunya-ch/kepler/model-dev/manifests/vm-sample/kepler-sidecar.yaml
 ```
+add the following environment variable to estimator sidecar container to see the sidecar log
+```yaml
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1
+```
 ### 3.Deploy workload
 ##### Deploy CPE operator
 ```bash

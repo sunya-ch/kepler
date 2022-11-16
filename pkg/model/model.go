@@ -58,30 +58,28 @@ func initEstimateFunction(modelConfig types.ModelConfig, archiveType, modelWeigh
 			} else {
 				estimateFunc = c.GetComponentPower
 			}
-			klog.V(3).Infof("Model %s initiated", archiveType.String())
-			return
 		}
-	}
-	// set UseEstimatorSidecar to false as cannot init valid EstimatorSidecarConnector
-	modelConfig.UseEstimatorSidecar = false
-	// try init LinearRegressor
-	r := local.LinearRegressor{
-		Endpoint:       modelServerEndpoint,
-		UsageMetrics:   usageMetrics,
-		OutputType:     modelWeightType,
-		SystemFeatures: systemFeatures,
-		ModelName:      modelConfig.SelectedModel,
-		SelectFilter:   modelConfig.SelectFilter,
-		InitModelURL:   modelConfig.InitModelURL,
-	}
-	valid = r.Init()
-	if isTotalPower {
-		estimateFunc = r.GetTotalPower
+		klog.V(3).Infof("Model %s initiated (%v)", archiveType.String(), valid)
 	} else {
-		estimateFunc = r.GetComponentPower
+		// init LinearRegressor
+		r := local.LinearRegressor{
+			Endpoint:       modelServerEndpoint,
+			UsageMetrics:   usageMetrics,
+			OutputType:     modelWeightType,
+			SystemFeatures: systemFeatures,
+			ModelName:      modelConfig.SelectedModel,
+			SelectFilter:   modelConfig.SelectFilter,
+			InitModelURL:   modelConfig.InitModelURL,
+		}
+		valid = r.Init()
+		if isTotalPower {
+			estimateFunc = r.GetTotalPower
+		} else {
+			estimateFunc = r.GetComponentPower
+		}
+		klog.V(3).Infof("Model %s initiated (%v)", modelWeightType.String(), valid)
 	}
-	klog.V(3).Infof("Model %s initiated (%v)", modelWeightType.String(), valid)
-	return valid, estimateFunc
+	return
 }
 
 // getComponentPower called by getPodComponentPowers to check if component key is present in powers response and fills with single 0
