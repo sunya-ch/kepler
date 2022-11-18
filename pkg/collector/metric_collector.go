@@ -23,6 +23,7 @@ import (
 	"github.com/sustainable-computing-io/kepler/pkg/attacher"
 	"github.com/sustainable-computing-io/kepler/pkg/cgroup"
 	"github.com/sustainable-computing-io/kepler/pkg/power/acpi"
+	"github.com/sustainable-computing-io/kepler/pkg/power/rapl"
 	"github.com/sustainable-computing-io/kepler/pkg/power/rapl/source"
 	"github.com/sustainable-computing-io/kepler/pkg/utils"
 
@@ -75,12 +76,16 @@ func NewCollector() *Collector {
 }
 
 func (c *Collector) Initialize() error {
+	// init bpf & counter metrics
 	m, err := attacher.AttachBPFAssets()
 	if err != nil {
 		return fmt.Errorf("failed to attach bpf assets: %v", err)
 	}
 	c.bpfHCMeter = m
-
+	// init power metric
+	c.acpiPowerMeter.Run()
+	rapl.InitPowerImpl()
+	// init cgroup metrics
 	pods, err := cgroup.Init()
 	if err != nil {
 		klog.V(5).Infoln(err)
@@ -90,7 +95,6 @@ func (c *Collector) Initialize() error {
 	c.prePopulateContainerMetrics(pods)
 	c.updateMeasuredNodeEnergy()
 	c.NodeMetrics.SetValues(c.NodeSensorEnergy, c.NodePkgEnergy, c.NodeGPUEnergy, [][]float64{}) // set initial energy
-	c.acpiPowerMeter.Run()
 	c.resetBPFTables()
 
 	return nil

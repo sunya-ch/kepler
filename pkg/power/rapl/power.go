@@ -45,11 +45,13 @@ var (
 	useMSR                   = false // it looks MSR on kvm or hyper-v is not working
 )
 
-func init() {
+func InitPowerImpl() {
+	source.InitSysfs()
 	if sysfsImpl.IsSupported() /*&& false*/ {
 		klog.V(1).Infoln("use sysfs to obtain power")
 		powerImpl = sysfsImpl
 	} else {
+		source.InitMSR()
 		if msrImpl.IsSupported() && useMSR {
 			klog.V(1).Infoln("use MSR to obtain power")
 			powerImpl = msrImpl

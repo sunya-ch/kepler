@@ -47,9 +47,10 @@ var (
 	eventPaths map[string]map[string]string
 )
 
-func init() {
+func InitSysfs() {
 	eventPaths = map[string]map[string]string{}
 	detectEventPaths()
+	klog.V(3).Infof("Sysfs Paths: %v", eventPaths)
 }
 
 // getEnergy returns the sum of the energy consumption of all sockets for a given event

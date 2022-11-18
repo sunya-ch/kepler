@@ -54,7 +54,7 @@ var (
 	cpuEnergyUnits, dramEnergyUnits []float64
 )
 
-func init() {
+func InitMSR() {
 	var i int32 = 0x01020304
 	u := unsafe.Pointer(&i)
 	pb := (*byte)(u)
