@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kepler-cfm
+  namespace: monitoring
+data:
+  CGROUP_METRICS: '*'
+  MODEL_CONFIG: |
+    POD_COMPONENTS_INIT_URL=https://raw.githubusercontent.com/sustainable-computing-io/kepler-model-server/main/tests/test_models/DynComponentModelWeight/CgroupOnly/ScikitMixed/ScikitMixed.json
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kepler-sa
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kepler-clusterrole
+  namespace: monitoring
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes/metrics
+  - nodes/proxy
+  - nodes/stats
+  verbs:
+  - get
+  - watch
+  - list
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kepler-clusterrole-binding
+  namespace: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kepler-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: kepler-sa
+  namespace: monitoring
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kepler-exporter
+  name: kepler-exporter
+  namespace: monitoring
+spec:
+  clusterIP: None
+  ports:
+  - name: http
+    port: 9102
+    targetPort: http
+  selector:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: kepler-exporter
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kepler-exporter
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: exporter
+      app.kubernetes.io/name: kepler-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: exporter
+        app.kubernetes.io/name: kepler-exporter
+    spec:
+      containers:
+      - command:
+        - /bin/sh
+        - -c
+        args:
+        - /usr/bin/kepler -address 0.0.0.0:9102 -enable-cgroup-id=true -v=3
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: ghcr.io/sunya-ch/kepler:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /healthz
+            port: 9102
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 60
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: kepler-exporter
+        ports:
+        - containerPort: 9102
+          hostPort: 9102
+          name: http
+        resources:
+          requests:
+            cpu: 100m
+            memory: 400Mi
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /lib/modules
+          name: lib-modules
+        - mountPath: /sys
+          name: tracing
+        - mountPath: /proc
+          name: proc
+        - name: cfm
+          mountPath: /etc/config
+          readOnly: true
+      hostNetwork: true
+      serviceAccountName: kepler-sa
+      volumes:
+      - hostPath:
+          path: /lib/modules
+          type: Directory
+        name: lib-modules
+      - hostPath:
+          path: /sys
+          type: Directory
+        name: tracing
+      - hostPath:
+          path: /proc
+          type: Directory
+        name: proc
+      - name: cfm
+        configMap:
+          name: kepler-cfm
