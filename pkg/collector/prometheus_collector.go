@@ -57,28 +57,6 @@ var (
 		"node_curr_energy_in_other_joule",
 		"node_curr_energy_in_pkg_joule",
 		"node_curr_energy_in_uncore_joule"}
-	podEnergyStatLabels = []string{
-		"pod_name",
-		"container_name",
-		"pod_namespace",
-		"command",
-		"curr_cpu_time",
-		"total_cpu_time",
-		"curr_cpu_cycles",
-		"total_cpu_cycles",
-		"curr_cpu_instr",
-		"total_cpu_instr",
-		"curr_cache_miss",
-		"total_cache_miss",
-		"curr_container_cpu_usage_seconds_total",
-		"total_container_cpu_usage_seconds_total",
-		"curr_container_memory_working_set_bytes",
-		"total_container_memory_working_set_bytes",
-		"curr_bytes_read",
-		"total_bytes_read",
-		"curr_bytes_writes",
-		"total_bytes_writes",
-		"block_devices_used"}
 )
 
 type NodeDesc struct {
@@ -369,7 +347,7 @@ func (p *PrometheusCollector) newPodMetrics() {
 	podEnergyStat := prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "pod", "energy_stat"),
 		"Several labeled pod metrics",
-		podEnergyStatLabels, nil,
+		collector_metric.ContainerStatPrometheusLabels, nil,
 	)
 	podCPUInstrTotal := prometheus.NewDesc(
 		prometheus.BuildFQName(namespace, "pod", "cpu_instructions"),
@@ -507,8 +485,8 @@ func (p *PrometheusCollector) UpdatePodMetrics(wg *sync.WaitGroup, ch chan<- pro
 				containerCommand = container.Command[:commandLenLimit]
 			}
 			// TODO: After removing this metric in the next release, we need to refactor and remove the ToPrometheusValues function
-			podEnergyStatusLabelValues := []string{container.PodName, container.ContainerName, container.Namespace, containerCommand}
-			for _, label := range podEnergyStatLabels[4:] {
+			podEnergyStatusLabelValues := container.GetBasicValues()
+			for _, label := range collector_metric.ContainerStatPrometheusLabels[4:] {
 				val := container.ToPrometheusValue(label)
 				podEnergyStatusLabelValues = append(podEnergyStatusLabelValues, val)
 			}

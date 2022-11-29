@@ -54,6 +54,8 @@ func setEnabledMetrics() {
 	ContainerFeaturesNames = append(ContainerFeaturesNames, ContainerFloatFeatureNames...)
 	ContainerFeaturesNames = append(ContainerFeaturesNames, ContainerUintFeaturesNames...)
 	ContainerMetricNames = getEstimatorMetrics()
+	ContainerStatPrometheusLabels = append(ContainerStatPrometheusLabels, ContainerBasicLabels...)
+	ContainerStatPrometheusLabels = append(ContainerStatPrometheusLabels, ContainerFeaturesNames...)
 }
 
 func getPrometheusMetrics() []string {

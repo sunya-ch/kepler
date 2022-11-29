@@ -19,7 +19,6 @@ package metric
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"k8s.io/klog/v2"
 )
@@ -35,6 +34,10 @@ var (
 	ContainerUintFeaturesNames []string
 	// ContainerFeaturesNames holds all the feature name of the container collector_metric. This is specific for the machine-learning based models.
 	ContainerFeaturesNames []string
+	// ContainerBasicLabels holds labels to identify a container
+	ContainerBasicLabels []string = []string{"pod_name", "container_name", "pod_namespace", "command"}
+	// ContainerStatPrometheusLabels holds labels for container stat including  ContainerBasicLabels and ContainerFeaturesNames
+	ContainerStatPrometheusLabels []string
 )
 
 type ContainerMetrics struct {
@@ -145,46 +148,46 @@ func (c *ContainerMetrics) SetLatestProcess(cgroupPID, pid uint64, comm string) 
 }
 
 // extractFloatCurrAggr return curr, aggr float64 values of specific uint metric
-func (c *ContainerMetrics) extractFloatCurrAggr(metric string) (curr, aggr float64, err error) {
+func (c *ContainerMetrics) extractFloatCurr(metric string) (curr float64, err error) {
 	// TO-ADD
-	return 0, 0, nil
+	return 0, nil
 }
 
-// extractUIntCurrAggr return curr, aggr uint64 values of specific uint metric
-func (c *ContainerMetrics) extractUIntCurrAggr(metric string) (curr, aggr uint64, err error) {
+// extractUIntCurrAggr return curr uint64 values of specific uint metric
+func (c *ContainerMetrics) extractUIntCurr(metric string) (curr uint64, err error) {
 	if val, exists := c.CounterStats[metric]; exists {
-		return val.Curr, val.Aggr, nil
+		return val.Curr, nil
 	}
 	if val, exists := c.CgroupFSStats[metric]; exists {
-		return val.Curr(), val.Aggr(), nil
+		return val.Curr(), nil
 	}
 	if val, exists := c.KubeletStats[metric]; exists {
-		return val.Curr, val.Aggr, nil
+		return val.Curr, nil
 	}
 
 	switch metric {
 	case CPUTimeLabel:
-		return c.CPUTime.Curr, c.CPUTime.Aggr, nil
+		return c.CPUTime.Curr, nil
 	// hardcode cgroup metrics
 	// TO-DO: merge to cgroup stat
 	case ByteReadLabel:
-		return c.BytesRead.Curr(), c.BytesRead.Aggr(), nil
+		return c.BytesRead.Curr(), nil
 	case ByteWriteLabel:
-		return c.BytesWrite.Curr(), c.BytesWrite.Aggr(), nil
+		return c.BytesWrite.Curr(), nil
 	}
 
 	klog.V(4).Infof("cannot extract: %s", metric)
-	return 0, 0, fmt.Errorf("cannot extract: %s", metric)
+	return 0, fmt.Errorf("cannot extract: %s", metric)
 }
 
 // ToEstimatorValues return values regarding metricNames
 func (c *ContainerMetrics) ToEstimatorValues() (values []float64) {
 	for _, metric := range ContainerFloatFeatureNames {
-		curr, _, _ := c.extractFloatCurrAggr(metric)
+		curr, _ := c.extractFloatCurr(metric)
 		values = append(values, curr)
 	}
 	for _, metric := range ContainerUintFeaturesNames {
-		curr, _, _ := c.extractUIntCurrAggr(metric)
+		curr, _ := c.extractUIntCurr(metric)
 		values = append(values, float64(curr))
 	}
 	// TO-DO: remove this hard code metric
@@ -198,23 +201,13 @@ func (c *ContainerMetrics) GetBasicValues() []string {
 	if len(command) > 10 {
 		command = command[:10]
 	}
-	return []string{c.PodName, c.Namespace, command}
+	return []string{c.PodName, c.ContainerName, c.Namespace, command}
 }
 
 // ToPrometheusValue return the value regarding metric label
 func (c *ContainerMetrics) ToPrometheusValue(metric string) string {
-	currentValue := false
-	if strings.Contains(metric, "curr_") {
-		currentValue = true
-		metric = strings.ReplaceAll(metric, "curr_", "")
-	}
-	metric = strings.ReplaceAll(metric, "total_", "")
-
-	if curr, aggr, err := c.extractUIntCurrAggr(metric); err == nil {
-		if currentValue {
-			return strconv.FormatUint(curr, 10)
-		}
-		return strconv.FormatUint(aggr, 10)
+	if curr, err := c.extractUIntCurr(metric); err == nil {
+		return strconv.FormatUint(curr, 10)
 	}
 	if metric == "block_devices_used" {
 		return strconv.FormatUint(uint64(c.Disks), 10)
@@ -222,11 +215,8 @@ func (c *ContainerMetrics) ToPrometheusValue(metric string) string {
 	if metric == "avg_cpu_frequency" {
 		return fmt.Sprintf("%f", c.AvgCPUFreq)
 	}
-	if curr, aggr, err := c.extractFloatCurrAggr(metric); err == nil {
-		if currentValue {
-			return fmt.Sprintf("%f", curr)
-		}
-		return fmt.Sprintf("%f", aggr)
+	if curr, err := c.extractFloatCurr(metric); err == nil {
+		return fmt.Sprintf("%f", curr)
 	}
 	klog.Errorf("cannot extract metric: %s", metric)
 	return ""
