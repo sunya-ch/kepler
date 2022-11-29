@@ -34,7 +34,6 @@ import (
 )
 
 const (
-	sliceSuffix  = ".slice"
 	scopeSuffix  = ".scope"
 	kubePodSlice = "kubepods.slice"
 )

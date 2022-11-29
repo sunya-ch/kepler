@@ -79,7 +79,7 @@ func initEstimateFunction(modelConfig types.ModelConfig, archiveType, modelWeigh
 		}
 		klog.V(3).Infof("Model %s initiated (%v)", modelWeightType.String(), valid)
 	}
-	return
+	return valid, estimateFunc
 }
 
 // getComponentPower called by getPodComponentPowers to check if component key is present in powers response and fills with single 0
