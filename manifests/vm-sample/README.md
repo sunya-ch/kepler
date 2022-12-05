@@ -85,3 +85,21 @@ export KUBECONFIG_FILE=~/.kube/config
 	# 	./cpec reset [controller|parser] - reset controller or parser
 	# 	./cpec save [save options]       - save current benchmark (KUBECONFIG_FILE required)
 ```
+
+
+# DNS Issue fixing CentOS
+```
+modprobe br_netfilter
+echo '1' > /proc/sys/net/bridge/bridge-nf-call-iptables
+```
+
+https://github.com/kubernetes/kubernetes/issues/21613#issuecomment-343190401
+
+Then, restart coredns pods.
+
+Check,
+
+```
+kubectl apply -f https://k8s.io/examples/admin/dns/dnsutils.yaml
+kubectl exec -i -t dnsutils -- nslookup kubernetes.default
+```
