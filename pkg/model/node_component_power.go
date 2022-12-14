@@ -33,9 +33,9 @@ var (
 // initContainerComponentPowerModelConfig: the container component power model must be set by default.
 func initNodeComponentPowerModelConfig() types.ModelConfig {
 	modelConfig := InitModelConfig(config.NodeComponentsKey)
-	if modelConfig.InitModelURL == "" {
-		modelConfig.InitModelURL = defaultAbsCompURL
-	}
+	// if modelConfig.InitModelURL == "" {
+	// 	modelConfig.InitModelURL = defaultAbsCompURL
+	// }
 	return modelConfig
 }
 
