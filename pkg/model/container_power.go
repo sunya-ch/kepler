@@ -77,8 +77,10 @@ func UpdateContainerEnergy(containersMetrics map[string]*collector_metric.Contai
 	// If the node can expose power measurement per component, we can use the RATIO power model
 	// Otherwise, we estimate it from trained power model
 	if components.IsSystemCollectionSupported() {
+		klog.V(5).Infoln("UpdateContainerEnergyByRatioPowerModel")
 		local.UpdateContainerEnergyByRatioPowerModel(containersMetrics, nodeMetrics)
 	} else {
+		klog.V(5).Infoln("UpdateContainerEnergyByTrainedPowerModel")
 		updateContainerEnergyByTrainedPowerModel(containersMetrics)
 	}
 }
