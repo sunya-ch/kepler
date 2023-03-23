@@ -58,9 +58,10 @@ var (
 )
 
 func loadModule(objProg []byte, options []string) (m *bpf.Module, err error) {
+	errs := []error{}
 	defer func() {
 		if r := recover(); r != nil {
-			err = fmt.Errorf("failed to attach the bpf program: %v", err)
+			err = fmt.Errorf("failed to attach the bpf program: %v", errs)
 			klog.Infoln(err)
 		}
 	}()
@@ -68,29 +69,39 @@ func loadModule(objProg []byte, options []string) (m *bpf.Module, err error) {
 	// TODO make all entrypoints yaml-declarable
 	ftswitch, err := m.LoadKprobe("kprobe__finish_task_switch")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load kprobe__finish_task_switch: %s", err)
+		err = fmt.Errorf("failed to load kprobe__finish_task_switch: %s", err)
+		errs = append(errs, err)
+		return nil, err
 	}
 	err = m.AttachKprobe("finish_task_switch", ftswitch, -1)
 	if err != nil {
 		err = m.AttachKprobe("finish_task_switch.isra.0", ftswitch, -1)
 		if err != nil {
-			return nil, fmt.Errorf("failed to attach finish_task_switch: %s", err)
+			err = fmt.Errorf("failed to attach finish_task_switch: %s", err)
+			errs = append(errs, err)
+			return nil, err
 		}
 	}
 	softirqEntry, err := m.LoadTracepoint("tracepoint__irq__softirq_entry")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load softirq_entry: %s", err)
+		err = fmt.Errorf("failed to load softirq_entry: %s", err)
+		errs = append(errs, err)
+		return nil, err
 	}
 	err = m.AttachTracepoint("irq:softirq_entry", softirqEntry)
 	if err != nil {
-		return nil, fmt.Errorf("failed to attach softirq_entry: %s", err)
+		err = fmt.Errorf("failed to attach softirq_entry: %s", err)
+		errs = append(errs, err)
+		return nil, err
 	}
 
 	for arrayName, counter := range Counters {
 		bpfPerfArrayName := arrayName + bpfPerfArrayPrefix
 		t := bpf.NewTable(m.TableId(bpfPerfArrayName), m)
 		if t == nil {
-			return nil, fmt.Errorf("failed to find perf array: %s", bpfPerfArrayName)
+			err = fmt.Errorf("failed to find perf array: %s", bpfPerfArrayName)
+			errs = append(errs, err)
+			return nil, err
 		}
 		perfErr := openPerfEvent(t, counter.evType, counter.evConfig)
 		if perfErr != nil {
