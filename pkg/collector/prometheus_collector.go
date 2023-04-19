@@ -136,7 +136,8 @@ type ContainerDesc struct {
 
 	// Additional metrics (gauge)
 	// TODO: review if we really need to expose this metric. cgroup also has some sortof cpuTime metric
-	containerCPUTime *prometheus.Desc
+	containerCPUTime                 *prometheus.Desc
+	containerCPUUsagePerPackageRatio *prometheus.Desc
 
 	// IRQ metrics
 	containerNetTxIRQTotal *prometheus.Desc
@@ -265,6 +266,7 @@ func (p *PrometheusCollector) Describe(ch chan<- *prometheus.Desc) {
 
 	// Old Node metric
 	ch <- p.containerDesc.containerCPUTime
+	ch <- p.containerDesc.containerCPUUsagePerPackageRatio
 	ch <- p.podDesc.podEnergyStat
 
 	// IRQ counter
@@ -453,6 +455,11 @@ func (p *PrometheusCollector) newContainerMetrics() {
 		"Aggregated CPU time obtained from BPF",
 		[]string{"container_id", "pod_name", "container_name", "container_namespace"}, nil,
 	)
+	containerCPUUsagePerPackageRatio := prometheus.NewDesc(
+		prometheus.BuildFQName(namespace, "container", "cpu_usage_per_package_ratio"),
+		"Ratio of CPU Usage (CPU time obtained from BPF) for each package",
+		[]string{"container_id", "pod_name", "container_name", "container_namespace", "pkg_id"}, nil,
+	)
 
 	// network irq metrics
 	containerNetTxIRQTotal := prometheus.NewDesc(
@@ -489,6 +496,7 @@ func (p *PrometheusCollector) newContainerMetrics() {
 		containerKubeletMemoryBytesTotal:     containerKubeletMemoryBytesTotal,
 		containerKubeletCPUUsageTotal:        containerKubeletCPUUsageTotal,
 		containerCPUTime:                     containerCPUTime,
+		containerCPUUsagePerPackageRatio:     containerCPUUsagePerPackageRatio,
 		containerNetTxIRQTotal:               containerNetTxIRQTotal,
 		containerNetRxIRQTotal:               containerNetRxIRQTotal,
 		containerBlockIRQTotal:               containerBlockIRQTotal,
@@ -712,6 +720,14 @@ func (p *PrometheusCollector) updatePodMetrics(wg *sync.WaitGroup, ch chan<- pro
 				float64(container.CPUTime.Aggr),
 				container.ContainerID, container.PodName, container.ContainerName, container.Namespace,
 			)
+			for packageID, ratio := range container.GetCPUUsagePerPackageRatio() {
+				ch <- prometheus.MustNewConstMetric(
+					p.containerDesc.containerCPUUsagePerPackageRatio,
+					prometheus.GaugeValue,
+					ratio,
+					container.ContainerID, container.PodName, container.ContainerName, container.Namespace, packageID,
+				)
+			}
 			ch <- prometheus.MustNewConstMetric(
 				p.containerDesc.containerCoreJoulesTotal,
 				prometheus.CounterValue,

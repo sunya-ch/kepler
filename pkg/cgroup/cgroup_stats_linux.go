@@ -43,11 +43,13 @@ type CCgroupV12StatManager struct {
 // See comments here: https://github.com/sustainable-computing-io/kepler/pull/609#discussion_r1155043868
 func NewCGroupStatManager(pid int) (CCgroupStatHandler, error) {
 	p := fmt.Sprintf(procPath, pid)
-	_, path, err := cgroups.ParseCgroupFileUnified(p)
+	cgroupMap, path, err := cgroups.ParseCgroupFileUnified(p)
 	if err != nil {
 		return nil, err
 	}
-
+	if path == "" {
+		path = cgroupMap["pids"]
+	}
 	if config.GetCGroupVersion() == 1 {
 		manager, err := cgroups.Load(cgroups.V1, cgroups.StaticPath(path))
 		if err != nil {
@@ -76,13 +78,13 @@ func errPassthrough(err error) error {
 }
 
 func (c CCgroupV1StatManager) SetCGroupStat(containerID string, cgroupStatMap map[string]*types.UInt64StatCollection) error {
-	stat, err := c.manager.Stat(errPassthrough)
+	stat, err := c.manager.Stat(cgroups.IgnoreNotExist)
 	if err != nil {
 		return err
 	}
-	if stat.Memory == nil {
-		return fmt.Errorf("cgroup metrics does not exist, the cgroup might be deleted")
-	}
+	// if stat.Memory == nil {
+	// 	return fmt.Errorf("cgroup metrics does not exist, the cgroup might be deleted")
+	// }
 	// cgroup v1 memory
 	if stat.Memory != nil {
 		cgroupStatMap[config.CgroupfsMemory].SetAggrStat(containerID, stat.Memory.Usage.Usage)
@@ -115,9 +117,9 @@ func (c CCgroupV12StatManager) SetCGroupStat(containerID string, cgroupStatMap m
 	if err != nil {
 		return err
 	}
-	if stat.Memory == nil {
-		return fmt.Errorf("cgroup metrics does not exist, the cgroup might be deleted")
-	}
+	// if stat.Memory == nil {
+	// 	return fmt.Errorf("cgroup metrics does not exist, the cgroup might be deleted")
+	// }
 	// memory
 	if stat.Memory != nil {
 		cgroupStatMap[config.CgroupfsMemory].SetAggrStat(containerID, stat.Memory.Usage)

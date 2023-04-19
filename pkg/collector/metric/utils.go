@@ -20,9 +20,12 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/jszwec/csvutil"
@@ -232,19 +235,46 @@ func getCPUArchitecture() (string, error) {
 	return "", fmt.Errorf("no CPU power model found for architecture %s", myCPUModel)
 }
 
-func getCPUPackageMap() (cpuPackageMap map[int32]string) {
+func findNumaNode(cpu int32) int {
+	targetFolder := fmt.Sprintf("/sys/devices/system/cpu/cpu%d", cpu)
+	files, err := ioutil.ReadDir(targetFolder)
+	if err != nil {
+		return -1
+	}
+	for _, file := range files {
+		re := regexp.MustCompile(`^node(\d+)$`)
+		match := re.FindStringSubmatch(file.Name())
+
+		if len(match) > 1 {
+			numberStr := match[1]
+			number, err := strconv.Atoi(numberStr)
+			if err != nil {
+				continue
+			}
+			return number
+		}
+	}
+	return -1
+}
+
+func getCPUPackageMap() (cpuPackageMap map[int32]string, numaPackageMap map[int]string) {
 	cpuPackageMap = make(map[int32]string)
+	numaPackageMap = make(map[int]string)
 	// check if mapping available
 	numCPU := int32(runtime.NumCPU())
 	for cpu := int32(0); cpu < numCPU; cpu++ {
 		targetFileName := fmt.Sprintf("/sys/devices/system/cpu/cpu%d/topology/physical_package_id", cpu)
 		value, err := os.ReadFile(targetFileName)
 		if err != nil {
-			klog.Errorf("cannot get CPU-Package map: %v", err)
+			klog.Info("cannot get CPU-Package map: %v", err)
 			return
 		}
-		cpuPackageMap[cpu] = strings.TrimSpace(string(value))
+		numaNode := findNumaNode(cpu)
+		packageID := strings.TrimSpace(string(value))
+		if numaNode >= 0 {
+			numaPackageMap[numaNode] = packageID
+		}
+		cpuPackageMap[cpu] = packageID
 	}
-	klog.V(3).Infof("CPU-Package Map: %v\n", cpuPackageMap)
 	return
 }

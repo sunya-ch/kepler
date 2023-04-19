@@ -41,14 +41,15 @@ const (
 )
 
 var (
-	NodeName            = getNodeName()
-	NodeCPUArchitecture = getCPUArch()
-	NodeCPUPackageMap   = getCPUPackageMap()
+	NodeName            string
+	NodeCPUArchitecture string
+	NodeCPUPackageMap   map[int32]string
+	NodeNumaPackageMap  map[int]string
 
-	// NodeMetricNames holds the name of the system metadata information.
-	NodeMetadataNames []string = []string{"cpu_architecture"}
-	// SystemMetadata holds the metadata regarding the system information
-	NodeMetadataValues []string = []string{NodeCPUArchitecture}
+	// NodeMetadataNames holds the name of the system metadata information.
+	NodeMetadataNames []string
+	// NodeMetadataValues holds the metadata regarding the system information
+	NodeMetadataValues []string
 )
 
 type NodeMetrics struct {
@@ -83,6 +84,20 @@ type NodeMetrics struct {
 	// IdleCPUUtilization is used to determine idle periods
 	IdleCPUUtilization uint64
 	FoundNewIdleState  bool
+}
+
+func init() {
+	InitNodeInfo()
+}
+
+func InitNodeInfo() {
+	NodeName = getNodeName()
+	NodeCPUArchitecture = getCPUArch()
+	NodeCPUPackageMap, NodeNumaPackageMap = getCPUPackageMap()
+	NodeMetadataValues = []string{NodeCPUArchitecture}
+	NodeMetadataNames = []string{"cpu_architecture"}
+
+	klog.Infof("PackageMap: %v, %v\n", NodeCPUPackageMap, NodeNumaPackageMap)
 }
 
 func NewNodeMetrics() *NodeMetrics {

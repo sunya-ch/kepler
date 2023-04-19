@@ -17,13 +17,13 @@ limitations under the License.
 package kubernetes
 
 import (
-	"fmt"
 	"regexp"
 	"sync"
 	"time"
 
 	k8sv1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
@@ -93,7 +93,8 @@ func NewObjListWatcher() *ObjListWatcher {
 	}
 
 	optionsModifier := func(options *metav1.ListOptions) {
-		options.FieldSelector = fmt.Sprintf("spec.nodeName=%s", collector_metric.NodeName) // to filter events per node
+		fieldSelector := fields.SelectorFromSet(fields.Set{"spec.nodeName": collector_metric.NodeName})
+		options.FieldSelector = fieldSelector.String() // to filter events per node
 	}
 	objListWatcher := cache.NewFilteredListWatchFromClient(
 		w.k8sCli.CoreV1().RESTClient(),
@@ -105,6 +106,9 @@ func NewObjListWatcher() *ObjListWatcher {
 	w.informer = cache.NewSharedInformer(objListWatcher, nil, 0)
 	w.stopChannel = make(chan struct{})
 	w.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			w.handleUpdate(obj)
+		},
 		UpdateFunc: func(oldObj interface{}, newObj interface{}) {
 			w.handleUpdate(newObj)
 		},
@@ -112,6 +116,7 @@ func NewObjListWatcher() *ObjListWatcher {
 			w.handleDeleted(obj)
 		},
 	})
+	klog.Infoln("Enable API server watcher")
 	IsWatcherEnabled = true
 	return w
 }
@@ -143,13 +148,13 @@ func (w *ObjListWatcher) handleUpdate(obj interface{}) {
 			klog.Infof("Could not convert obj: %v", w.ResourceKind)
 			return
 		}
-		podID := string(pod.GetUID())
+		// podID := string(pod.GetUID())
 		// Pod object can have many updates such as change in the annotations and labels.
 		// We only add the pod information when all containers are ready, then when the
 		// pod is in our managed list we can skip the informantion update.
-		if _, exist := managedPods[podID]; exist {
-			return
-		}
+		// if _, exist := managedPods[podID]; exist {
+		// 	return
+		// }
 		for _, condition := range pod.Status.Conditions {
 			if condition.Type != k8sv1.ContainersReady && condition.Status != k8sv1.ConditionTrue {
 				continue
@@ -159,7 +164,7 @@ func (w *ObjListWatcher) handleUpdate(obj interface{}) {
 			w.fillInfo(pod, pod.Status.InitContainerStatuses)
 			w.fillInfo(pod, pod.Status.EphemeralContainerStatuses)
 			w.Mx.Unlock()
-			managedPods[podID] = true
+			// managedPods[podID] = true
 		}
 
 	default:
@@ -173,6 +178,7 @@ func (w *ObjListWatcher) fillInfo(pod *k8sv1.Pod, containers []k8sv1.ContainerSt
 	for j := 0; j < len(containers); j++ {
 		containerID := ParseContainerIDFromPodStatus(containers[j].ContainerID)
 		if _, exist = (*w.ContainersMetrics)[containerID]; !exist {
+			klog.Infof("Watcher add new containerID: %s (pod: %s, container: %s)", containerID, pod.Name, containers[j].Name)
 			(*w.ContainersMetrics)[containerID] = collector_metric.NewContainerMetrics(containers[j].Name, pod.Name, pod.Namespace, containerID)
 		}
 		(*w.ContainersMetrics)[containerID].ContainerName = containers[j].Name
@@ -204,6 +210,10 @@ func (w *ObjListWatcher) handleDeleted(obj interface{}) {
 func (w *ObjListWatcher) deleteInfo(containers []k8sv1.ContainerStatus) {
 	for j := 0; j < len(containers); j++ {
 		containerID := ParseContainerIDFromPodStatus(containers[j].ContainerID)
+		containerInfo, ok := (*w.ContainersMetrics)[containerID]
+		if ok {
+			klog.Infof("Watcher delete containerID: %s (name: %s)", containerID, containerInfo.ContainerName)
+		}
 		delete(*w.ContainersMetrics, containerID)
 	}
 }

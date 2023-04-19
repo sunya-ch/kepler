@@ -56,6 +56,8 @@ type ContainerMetrics struct {
 	CgroupStatMap     map[string]*types.UInt64StatCollection
 	// TODO: kubelet stat metrics is deprecated since it duplicates the cgroup metrics. We will remove it soon.
 	KubeletStats map[string]*types.UInt64Stat
+
+	CPUUsagePerPackage *types.UInt64StatCollection
 }
 
 // NewContainerMetrics creates a new ContainerMetrics instance
@@ -86,6 +88,9 @@ func NewContainerMetrics(containerName, podName, podNamespace, containerID strin
 		},
 		CgroupStatMap: make(map[string]*types.UInt64StatCollection),
 		KubeletStats:  make(map[string]*types.UInt64Stat),
+		CPUUsagePerPackage: &types.UInt64StatCollection{
+			Stat: make(map[string]*types.UInt64Stat),
+		},
 	}
 	for _, metricName := range AvailableHWCounters {
 		c.CounterStats[metricName] = &types.UInt64Stat{}
@@ -136,6 +141,7 @@ func (c *ContainerMetrics) ResetDeltaValues() {
 	c.IdleEnergyInOther.ResetDeltaValues()
 	c.IdleEnergyInGPU.ResetDeltaValues()
 	c.IdleEnergyInPlatform.ResetDeltaValues()
+	c.CPUUsagePerPackage.ResetDeltaValues()
 }
 
 // SetLatestProcess set cgroupPID, PID, and command to the latest captured process
@@ -187,7 +193,7 @@ func (c *ContainerMetrics) getIntDeltaAndAggrValue(metric string) (curr, aggr ui
 		return c.SoftIRQCount[attacher.IRQNetRX].Delta, c.SoftIRQCount[attacher.IRQNetRX].Aggr, nil
 	}
 
-	klog.V(4).Infof("cannot extract: %s", metric)
+	//	klog.V(4).Infof("cannot extract: %s", metric)
 	return 0, 0, fmt.Errorf("cannot extract: %s", metric)
 }
 
@@ -225,7 +231,7 @@ func (c *ContainerMetrics) ToPrometheusValue(metric string) string {
 		}
 		return fmt.Sprintf("%f", aggr)
 	}
-	klog.Errorf("cannot extract metric: %s", metric)
+	//	klog.Errorf("cannot extract metric: %s", metric)
 	return ""
 }
 
@@ -242,7 +248,7 @@ func (c *ContainerMetrics) String() string {
 		"\tcgrouppid: %d pid: %d comm: %s containerid:%s\n"+
 		"\tDyn ePkg (mJ): %s (eCore: %s eDram: %s eUncore: %s) eGPU (mJ): %s eOther (mJ): %s \n"+
 		"\tIdle ePkg (mJ): %s (eCore: %s eDram: %s eUncore: %s) eGPU (mJ): %s eOther (mJ): %s \n"+
-		"\tCPUTime:  %d (%d)\n"+
+		"\tCPUTime:  %d (%d) %v\n"+
 		"\tNetTX IRQ: %d (%d)\n"+
 		"\tNetRX IRQ: %d (%d)\n"+
 		"\tBlock IRQ: %d (%d)\n"+
@@ -253,7 +259,7 @@ func (c *ContainerMetrics) String() string {
 		c.CGroupPID, c.PIDS, c.Command, c.ContainerID,
 		c.DynEnergyInPkg, c.DynEnergyInCore, c.DynEnergyInDRAM, c.DynEnergyInUncore, c.DynEnergyInGPU, c.DynEnergyInOther,
 		c.IdleEnergyInPkg, c.IdleEnergyInCore, c.IdleEnergyInDRAM, c.IdleEnergyInUncore, c.IdleEnergyInGPU, c.IdleEnergyInOther,
-		c.CPUTime.Delta, c.CPUTime.Aggr,
+		c.CPUTime.Delta, c.CPUTime.Aggr, c.GetCPUUsagePerPackageRatio(),
 		c.SoftIRQCount[attacher.IRQNetTX].Delta, c.SoftIRQCount[attacher.IRQNetTX].Aggr,
 		c.SoftIRQCount[attacher.IRQNetRX].Delta, c.SoftIRQCount[attacher.IRQNetRX].Aggr,
 		c.SoftIRQCount[attacher.IRQBlock].Delta, c.SoftIRQCount[attacher.IRQBlock].Aggr,
@@ -313,6 +319,19 @@ func (c *ContainerMetrics) GetIdleEnergyStat(component string) (energyStat *type
 		return c.IdleEnergyInPlatform
 	default:
 		klog.Fatalf("IdleEnergy component type %s is unknown\n", component)
+	}
+	return
+}
+
+func (c *ContainerMetrics) GetCPUUsagePerPackageRatio() (ratio map[string]float64) {
+	ratio = make(map[string]float64)
+	totalTime := c.CPUTime.Delta
+	if totalTime == 0 {
+		// no CPU time usage
+		return
+	}
+	for packageID, cpuTimeStat := range c.CPUUsagePerPackage.Stat {
+		ratio[packageID] = float64(cpuTimeStat.Delta) / float64(totalTime)
 	}
 	return
 }

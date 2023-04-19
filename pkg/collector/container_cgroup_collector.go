@@ -19,6 +19,7 @@ package collector
 import (
 	"github.com/sustainable-computing-io/kepler/pkg/cgroup"
 	collector_metric "github.com/sustainable-computing-io/kepler/pkg/collector/metric"
+	"github.com/sustainable-computing-io/kepler/pkg/kubernetes"
 
 	"k8s.io/klog/v2"
 )
@@ -27,13 +28,13 @@ import (
 func (c *Collector) updateCgroupMetrics() {
 	for key := range c.ContainersMetrics {
 		if c.ContainersMetrics[key].PID == 0 {
-			klog.V(3).Infof("PID 0 does not have cgroup metrics since there is no /proc/0/cgroup")
+			// klog.V(3).Infof("PID 0 does not have cgroup metrics since there is no /proc/0/cgroup")
 			continue
 		}
 		if c.ContainersMetrics[key].CgroupStatHandler == nil {
 			handler, err := cgroup.NewCGroupStatManager(int(c.ContainersMetrics[key].PID))
 			if err != nil {
-				klog.V(3).Infoln("Error: could not start cgroup stat handler for PID:", c.ContainersMetrics[key].PID)
+				klog.V(3).Infof("Error: could not start cgroup stat handler for PID: %d: %v", c.ContainersMetrics[key].PID, err)
 				if key != c.systemProcessName {
 					// if cgroup manager does not exist, it means that the container was deleted
 					delete(c.ContainersMetrics, key)
@@ -44,8 +45,11 @@ func (c *Collector) updateCgroupMetrics() {
 		}
 		err := c.ContainersMetrics[key].UpdateCgroupMetrics()
 		// if the cgroup metrics of a container does not exist, it means that the container was deleted
-		if key != c.systemProcessName && err != nil {
+		if key != c.systemProcessName && !kubernetes.IsWatcherEnabled && err != nil {
 			delete(c.ContainersMetrics, key)
+		}
+		if err != nil {
+			klog.V(1).Infof("Cannot UpdateCgroupMetrics %s: %v)", c.ContainersMetrics[key].ContainerName, err)
 		}
 	}
 }

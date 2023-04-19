@@ -25,6 +25,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/sustainable-computing-io/kepler/pkg/utils"
 	"golang.org/x/sys/unix"
 	"k8s.io/klog/v2"
 )
@@ -109,6 +110,8 @@ var (
 
 	// KubeConfig is used to start k8s client with the pod running outside the cluster
 	KubeConfig = ""
+
+	HostPIDNamespace = utils.GetPIDNamespace(1)
 )
 
 func logBoolConfigs() {
@@ -124,6 +127,7 @@ func logBoolConfigs() {
 }
 
 func LogConfigs() {
+	klog.V(1).Infof("HostPIDNamespace: %d", HostPIDNamespace)
 	logBoolConfigs()
 }
 

@@ -26,6 +26,7 @@ import (
 	"github.com/sustainable-computing-io/kepler/pkg/cgroup"
 	collector_metric "github.com/sustainable-computing-io/kepler/pkg/collector/metric"
 	"github.com/sustainable-computing-io/kepler/pkg/config"
+	"github.com/sustainable-computing-io/kepler/pkg/kubernetes"
 	"github.com/sustainable-computing-io/kepler/pkg/utils"
 
 	"k8s.io/klog/v2"
@@ -38,6 +39,7 @@ import "C"
 type ProcessBPFMetrics struct {
 	CGroupID       uint64
 	PID            uint64
+	NumaNode       uint64
 	ProcessRunTime uint64
 	CPUCycles      uint64
 	CPUInstr       uint64
@@ -51,6 +53,9 @@ func (c *Collector) updateBasicBPF(containerID string, ct *ProcessBPFMetrics, is
 	// update ebpf metrics
 	// first update CPU time
 	err := c.ContainersMetrics[containerID].CPUTime.AddNewDelta(ct.ProcessRunTime)
+	numaNode := int(ct.NumaNode)
+	packageID := collector_metric.NodeNumaPackageMap[numaNode]
+	c.ContainersMetrics[containerID].CPUUsagePerPackage.AddDeltaStat(packageID, ct.ProcessRunTime)
 	if err != nil {
 		klog.V(5).Infoln(err)
 	}
@@ -129,16 +134,27 @@ func (c *Collector) updateBPFMetrics() {
 			}
 		}
 
-		containerID, _ := cgroup.GetContainerID(ct.CGroupID, ct.PID, config.EnabledEBPFCgroupID)
+		comm := C.GoString((*C.char)(unsafe.Pointer(&ct.Command)))
+
+		containerID, err := cgroup.GetContainerID(ct.CGroupID, ct.PID, config.EnabledEBPFCgroupID)
 		if err != nil {
-			klog.V(5).Infof("failed to resolve container for cGroup ID %v: %v, set containerID=%s", ct.CGroupID, err, c.systemProcessName)
+			klog.V(3).Infof("failed to resolve container for cGroup ID %v (%s): %v, set containerID=%s", ct.CGroupID, comm, err, c.systemProcessName)
 		}
 
 		isSystemProcess := containerID == c.systemProcessName
-
+		// if isSystemProcess {
+		// 	klog.V(3).Infof("System process command: %s (cGroup ID %v, pid %d, numa: %d)", comm, ct.CGroupID, ct.PID, ct.NumaNode)
+		// } else {
+		// 	_, containerOK := c.ContainersMetrics[containerID]
+		// 	if !containerOK {
+		// 		klog.V(1).Infof("Non-system process command: %s (cGroup ID %v, pid %d, containerID: %s) - Not OK", comm, ct.CGroupID, ct.PID, containerID)
+		// 		for containerIDkey := range c.ContainersMetrics {
+		// 			klog.V(1).Infof("(%s %s)", containerIDkey, c.ContainersMetrics[containerIDkey].ContainerName)
+		// 		}
+		// 	}
+		// }
 		c.createContainersMetricsIfNotExist(containerID, ct.CGroupID, ct.PID, config.EnabledEBPFCgroupID)
 		c.ContainersMetrics[containerID].PID = ct.PID
-		comm := C.GoString((*C.char)(unsafe.Pointer(&ct.Command)))
 		// System process is the aggregation of all background process running outside kubernetes
 		// this means that the list of process might be very large, so we will not add this information to the cache
 		if !isSystemProcess {
@@ -172,7 +188,9 @@ func (c *Collector) updateBPFMetrics() {
 			klog.Infof("resetting EnabledBPFBatchDelete to %v", config.EnabledBPFBatchDelete)
 		}
 	}
-	c.handleInactiveContainers(foundContainer)
+	if !kubernetes.IsWatcherEnabled {
+		c.handleInactiveContainers(foundContainer)
+	}
 	if config.EnableProcessMetrics {
 		c.handleInactiveProcesses(foundProcess)
 	}

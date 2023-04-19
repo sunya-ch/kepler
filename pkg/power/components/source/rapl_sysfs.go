@@ -27,8 +27,8 @@ import (
 
 const (
 	// sysfs path templates
-	packageNamePathTemplate = "/sys/class/powercap/intel-rapl/intel-rapl:%d/"
-	eventNamePathTemplate   = "/sys/class/powercap/intel-rapl/intel-rapl:%d/intel-rapl:%d:%d/"
+	packageNamePathTemplate = "/host/sys/class/powercap/intel-rapl/intel-rapl:%d/"
+	eventNamePathTemplate   = "/host/sys/class/powercap/intel-rapl/intel-rapl:%d/intel-rapl:%d:%d/"
 	energyFile              = "energy_uj"
 
 	// RAPL number of events (core, dram and uncore)

@@ -43,8 +43,8 @@ type ContainerInfo struct {
 const (
 	unknownPath string = "unknown"
 
-	procPath   string = "/proc/%d/cgroup"
-	cgroupPath string = "/sys/fs/cgroup"
+	procPath   string = "/host/proc/%d/cgroup"
+	cgroupPath string = "/host/sys/fs/cgroup"
 )
 
 var (
@@ -123,6 +123,7 @@ func getContainerInfo(cGroupID, pid uint64, withCGroupID bool) (*ContainerInfo, 
 	}
 
 	if _, ok := containerIDToContainerInfo[containerID]; !ok {
+		// here info.ContainerName is always = SystemProcessName
 		containerIDToContainerInfo[containerID] = info
 		// some system process might have container ID, but we need to replace it if the container is not a kubernetes container
 		if info.ContainerName == utils.SystemProcessName {
@@ -221,6 +222,7 @@ func GetContainerIDFromPID(pid uint64) (string, error) {
 	}
 
 	containerID, err := extractPodContainerIDfromPath(path)
+	klog.V(3).Infof("extractPodContainerIDfromPath %d %s %s", pid, path, containerID)
 	AddContainerIDToCache(pid, containerID)
 	return containerIDCache[pid], err
 }
@@ -239,6 +241,7 @@ func getPathFromPID(searchPath string, pid uint64) (string, error) {
 		if strings.Contains(line, "pod") || strings.Contains(line, "containerd") || strings.Contains(line, "crio") {
 			return line, nil
 		}
+		break
 	}
 	return "", fmt.Errorf("could not find cgroup description entry for pid %d", pid)
 }
@@ -255,6 +258,7 @@ func getContainerIDFromcGroupID(cGroupID uint64) (string, error) {
 	}
 
 	containerID, err := extractPodContainerIDfromPath(path)
+	klog.V(3).Infof("extractPodContainerIDfromPath (cGroupID %d) %s %s", cGroupID, path, containerID)
 	AddContainerIDToCache(cGroupID, containerID)
 	return containerIDCache[cGroupID], err
 }
@@ -317,7 +321,12 @@ func extractPodContainerIDfromPath(path string) (string, error) {
 			return containerID, nil
 		}
 	}
-	return utils.SystemProcessName, fmt.Errorf("failed to find pod's container id")
+
+	splits := strings.Split(path, "/")
+	if len(splits) == 1 {
+		return utils.SystemProcessName, fmt.Errorf("failed to find pod's container id from path %s", path)
+	}
+	return splits[len(splits)-1], nil
 }
 
 func getAliveContainers(pods *[]corev1.Pod) (map[string]bool, error) {
