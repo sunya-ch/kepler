@@ -114,7 +114,7 @@ typedef struct pid_time_t
 typedef struct pid_numa_t
 {
     u32 pid;
-    u64 nnode;
+    // u64 nnode;
 } pid_numa_t;
 
 // processes and pid time
@@ -280,19 +280,18 @@ int kprobe__finish_task_switch(struct pt_regs *ctx, struct task_struct *prev)
 
     // store process metrics
     struct process_metrics_t *process_metrics;
-    pid_numa_t prev_pid_numa = {.pid = prev_pid, .nnode = numa_id};
+    pid_numa_t prev_pid_numa = {.pid = prev_pid};
     process_metrics = processes.lookup(&prev_pid_numa);
     if (process_metrics != 0)
     {
         // update process time
         process_metrics->process_run_time += on_cpu_time_delta;
-
         process_metrics->cpu_cycles += on_cpu_cycles_delta;
         process_metrics->cpu_instr += on_cpu_instr_delta;
         process_metrics->cache_miss += on_cpu_cache_miss_delta;
     }
 
-    pid_numa_t cur_pid_numa = {.pid = cur_pid, .nnode = numa_id};
+    pid_numa_t cur_pid_numa = {.pid = cur_pid};
     process_metrics = processes.lookup(&cur_pid_numa);
     if (process_metrics == 0)
     {

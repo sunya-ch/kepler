@@ -23,6 +23,7 @@ import (
 	"github.com/sustainable-computing-io/kepler/pkg/bpfassets/attacher"
 	"github.com/sustainable-computing-io/kepler/pkg/cgroup"
 	"github.com/sustainable-computing-io/kepler/pkg/config"
+	"github.com/sustainable-computing-io/kepler/pkg/kubernetes"
 	"github.com/sustainable-computing-io/kepler/pkg/power/accelerator"
 	"github.com/sustainable-computing-io/kepler/pkg/power/acpi"
 	"github.com/sustainable-computing-io/kepler/pkg/utils"
@@ -56,9 +57,11 @@ type Collector struct {
 	// generic names to be used for process that are not within a pod
 	systemProcessName      string
 	systemProcessNamespace string
+
+	WatcherDeleteQueue chan kubernetes.DeleteEvent
 }
 
-func NewCollector() *Collector {
+func NewCollector(watcherQueue chan kubernetes.DeleteEvent) *Collector {
 	c := &Collector{
 		acpiPowerMeter:         acpi.NewACPIPowerMeter(),
 		NodeMetrics:            *collector_metric.NewNodeMetrics(),
@@ -66,6 +69,7 @@ func NewCollector() *Collector {
 		ProcessMetrics:         map[uint64]*collector_metric.ProcessMetrics{},
 		systemProcessName:      utils.SystemProcessName,
 		systemProcessNamespace: utils.SystemProcessNamespace,
+		WatcherDeleteQueue:     watcherQueue,
 	}
 	return c
 }
@@ -109,7 +113,7 @@ func (c *Collector) Update() {
 	// the bpf collects metrics per processes and then map the process ids to container ids
 	// TODO: when bpf is not running, the ContainersMetrics will not be updated with new containers.
 	// The ContainersMetrics will only have the containers that were identified during the initialization (initContainersMetrics)
-	c.updateBPFMetrics() // collect new hardware counter metrics if possible
+	cleanUpTime := c.updateBPFMetrics() // collect new hardware counter metrics if possible
 
 	// TODO: collect cgroup metrics only from cgroup to avoid unnecessary overhead to kubelet
 	c.updateCgroupMetrics()  // collect new cgroup metrics from cgroup
@@ -139,6 +143,9 @@ func (c *Collector) Update() {
 		klog.V(3).Infoln(c.NodeMetrics.String())
 	}
 	klog.V(2).Infof("Collector Update elapsed time: %s", time.Since(start))
+	if kubernetes.IsWatcherEnabled {
+		c.processWatcherDeleteQueue(cleanUpTime)
+	}
 }
 
 // resetDeltaValue reset existing podEnergy previous curr value
@@ -150,6 +157,46 @@ func (c *Collector) resetDeltaValue() {
 		v.ResetDeltaValues()
 	}
 	c.NodeMetrics.ResetDeltaValues()
+}
+
+func (c *Collector) processWatcherDeleteQueue(cleanUpTime time.Time) {
+	klog.V(5).Infof("ProcessWatcherDeleteQueue (Cleanup at %v)", cleanUpTime)
+	requeueList := []kubernetes.DeleteEvent{}
+	for {
+		select {
+		case deleteEvent, ok := <-c.WatcherDeleteQueue:
+			if !ok {
+				// Queue is closed, exit the loop
+				klog.Info("WatcherDeleteQueue is closed.")
+				return
+			}
+			containerID := deleteEvent.ContainerID
+			deleteTime := deleteEvent.DeletionTime
+			klog.V(2).Infof("process deletion: %s (Deleted at %v)", containerID, deleteTime)
+			if deleteTime.After(cleanUpTime) {
+				// add for requeue
+				requeueList = append(requeueList, deleteEvent)
+			} else {
+				// Process the value from the queue
+				containerInfo, ok := c.ContainersMetrics[containerID]
+				if ok {
+					klog.Infof("process WatcherDeleteQueue containerID: %s (name: %s)", containerID, containerInfo.ContainerName)
+				}
+				delete(c.ContainersMetrics, containerID)
+			}
+		default:
+			// Queue is empty, exit the loop
+			klog.V(2).Infof("no data in WatcherDeleteQueue")
+		}
+		if len(c.WatcherDeleteQueue) == 0 {
+			// requeue
+			for _, deleteEventToRequeue := range requeueList {
+				klog.Infof("requeue containerID to WatcherDeleteQueue: %s (Delete %v after Clean %v)", deleteEventToRequeue.ContainerID, deleteEventToRequeue.DeletionTime, cleanUpTime)
+				c.WatcherDeleteQueue <- deleteEventToRequeue
+			}
+			break
+		}
+	}
 }
 
 // init adds the information of containers that were already running before kepler has been created

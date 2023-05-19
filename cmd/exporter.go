@@ -157,6 +157,7 @@ func main() {
 
 	components.InitPowerImpl()
 
+	collector_metric.InitNodeInfo()
 	collector_metric.InitAvailableParamAndMetrics()
 
 	// For local estimator, there is endpoint provided, thus we should let

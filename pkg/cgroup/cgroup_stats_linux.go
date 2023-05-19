@@ -53,7 +53,7 @@ func NewCGroupStatManager(pid int) (CCgroupStatHandler, error) {
 	if config.GetCGroupVersion() == 1 {
 		manager, err := cgroups.Load(cgroups.V1, cgroups.StaticPath(path))
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s, %v", path, err)
 		}
 		return CCgroupV1StatManager{
 			manager: manager,

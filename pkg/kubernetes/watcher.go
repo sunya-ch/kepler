@@ -45,6 +45,11 @@ var (
 	managedPods                   = make(map[string]bool)
 )
 
+type DeleteEvent struct {
+	ContainerID  string
+	DeletionTime time.Time
+}
+
 type ObjListWatcher struct {
 	// Lock to syncronize the collector update with the watcher
 	Mx *sync.Mutex
@@ -55,7 +60,8 @@ type ObjListWatcher struct {
 	stopChannel  chan struct{}
 
 	// ContainersMetrics holds all container energy and resource usage metrics
-	ContainersMetrics *map[string]*collector_metric.ContainerMetrics
+	ContainersMetrics  *map[string]*collector_metric.ContainerMetrics
+	WatcherDeleteQueue chan DeleteEvent
 }
 
 func newK8sClient() *kubernetes.Clientset {
@@ -82,11 +88,12 @@ func newK8sClient() *kubernetes.Clientset {
 	return clientset
 }
 
-func NewObjListWatcher() *ObjListWatcher {
+func NewObjListWatcher(watcherDeleteQueue chan DeleteEvent) *ObjListWatcher {
 	w := &ObjListWatcher{
-		stopChannel:  make(chan struct{}),
-		k8sCli:       newK8sClient(),
-		ResourceKind: podResourceType,
+		stopChannel:        make(chan struct{}),
+		k8sCli:             newK8sClient(),
+		ResourceKind:       podResourceType,
+		WatcherDeleteQueue: watcherDeleteQueue,
 	}
 	if w.k8sCli == nil {
 		return w
@@ -152,31 +159,41 @@ func (w *ObjListWatcher) handleUpdate(obj interface{}) {
 		// Pod object can have many updates such as change in the annotations and labels.
 		// We only add the pod information when all containers are ready, then when the
 		// pod is in our managed list we can skip the informantion update.
-		// if _, exist := managedPods[podID]; exist {
-		// 	return
+		// for _, condition := range pod.Status.Conditions {
+		// 	if condition.Type != k8sv1.ContainersReady && condition.Status != k8sv1.ConditionTrue {
+		// 		continue
+		// 	}
+		// 	// w.Mx.Lock()
+		// 	// w.fillInfo(pod, pod.Status.ContainerStatuses)
+		// 	// w.fillInfo(pod, pod.Status.InitContainerStatuses)
+		// 	// w.fillInfo(pod, pod.Status.EphemeralContainerStatuses)
+		// 	// w.Mx.Unlock()
+		// 	// managedPods[podID] = true
 		// }
 		for _, condition := range pod.Status.Conditions {
 			if condition.Type != k8sv1.ContainersReady && condition.Status != k8sv1.ConditionTrue {
 				continue
 			}
-			w.Mx.Lock()
 			w.fillInfo(pod, pod.Status.ContainerStatuses)
 			w.fillInfo(pod, pod.Status.InitContainerStatuses)
 			w.fillInfo(pod, pod.Status.EphemeralContainerStatuses)
-			w.Mx.Unlock()
-			// managedPods[podID] = true
 		}
-
 	default:
 		klog.Infof("Watcher does not support object type %s", w.ResourceKind)
 		return
 	}
 }
 
-func (w *ObjListWatcher) fillInfo(pod *k8sv1.Pod, containers []k8sv1.ContainerStatus) {
+func (w *ObjListWatcher) fillInfo(pod *k8sv1.Pod, containers []k8sv1.ContainerStatus) (success bool) {
 	var exist bool
+	success = true
 	for j := 0; j < len(containers); j++ {
 		containerID := ParseContainerIDFromPodStatus(containers[j].ContainerID)
+		if containerID == "" {
+			success = false
+			continue
+		}
+		w.Mx.Lock()
 		if _, exist = (*w.ContainersMetrics)[containerID]; !exist {
 			klog.Infof("Watcher add new containerID: %s (pod: %s, container: %s)", containerID, pod.Name, containers[j].Name)
 			(*w.ContainersMetrics)[containerID] = collector_metric.NewContainerMetrics(containers[j].Name, pod.Name, pod.Namespace, containerID)
@@ -184,7 +201,9 @@ func (w *ObjListWatcher) fillInfo(pod *k8sv1.Pod, containers []k8sv1.ContainerSt
 		(*w.ContainersMetrics)[containerID].ContainerName = containers[j].Name
 		(*w.ContainersMetrics)[containerID].PodName = pod.Name
 		(*w.ContainersMetrics)[containerID].Namespace = pod.Namespace
+		w.Mx.Unlock()
 	}
+	return
 }
 
 func (w *ObjListWatcher) handleDeleted(obj interface{}) {
@@ -195,11 +214,14 @@ func (w *ObjListWatcher) handleDeleted(obj interface{}) {
 			klog.Fatalf("Could not convert obj: %v", w.ResourceKind)
 		}
 		delete(managedPods, string(pod.GetUID()))
-		w.Mx.Lock()
-		w.deleteInfo(pod.Status.ContainerStatuses)
-		w.deleteInfo(pod.Status.InitContainerStatuses)
-		w.deleteInfo(pod.Status.EphemeralContainerStatuses)
-		w.Mx.Unlock()
+		deleteTime := time.Now()
+		deleteTimestamp := pod.ObjectMeta.DeletionTimestamp
+		if deleteTimestamp == nil {
+			deleteTime = deleteTimestamp.Time
+		}
+		w.deleteInfo(pod.Status.ContainerStatuses, deleteTime)
+		w.deleteInfo(pod.Status.InitContainerStatuses, deleteTime)
+		w.deleteInfo(pod.Status.EphemeralContainerStatuses, deleteTime)
 	default:
 		klog.Infof("Watcher does not support object type %s", w.ResourceKind)
 		return
@@ -207,14 +229,11 @@ func (w *ObjListWatcher) handleDeleted(obj interface{}) {
 }
 
 // TODO: instead of delete, it might be better to mark it to delete since k8s takes time to really delete an object
-func (w *ObjListWatcher) deleteInfo(containers []k8sv1.ContainerStatus) {
+func (w *ObjListWatcher) deleteInfo(containers []k8sv1.ContainerStatus, deleteTime time.Time) {
 	for j := 0; j < len(containers); j++ {
 		containerID := ParseContainerIDFromPodStatus(containers[j].ContainerID)
-		containerInfo, ok := (*w.ContainersMetrics)[containerID]
-		if ok {
-			klog.Infof("Watcher delete containerID: %s (name: %s)", containerID, containerInfo.ContainerName)
-		}
-		delete(*w.ContainersMetrics, containerID)
+		klog.Infof("Watcher add delete event: %s at %v", containerID, deleteTime)
+		w.WatcherDeleteQueue <- DeleteEvent{ContainerID: containerID, DeletionTime: deleteTime}
 	}
 }
 

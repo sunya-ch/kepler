@@ -34,9 +34,9 @@ func (c *Collector) updateCgroupMetrics() {
 		if c.ContainersMetrics[key].CgroupStatHandler == nil {
 			handler, err := cgroup.NewCGroupStatManager(int(c.ContainersMetrics[key].PID))
 			if err != nil {
-				klog.V(3).Infof("Error: could not start cgroup stat handler for PID: %d: %v", c.ContainersMetrics[key].PID, err)
-				if key != c.systemProcessName {
-					// if cgroup manager does not exist, it means that the container was deleted
+				if key != c.systemProcessName && !kubernetes.IsWatcherEnabled {
+					// cgroup manager cannot be init
+					klog.Infof("delete: %s (%d) from ContainersMetrics on cgroup init: %v", c.ContainersMetrics[key].PodName, c.ContainersMetrics[key].PID, err)
 					delete(c.ContainersMetrics, key)
 				}
 				continue
@@ -44,12 +44,15 @@ func (c *Collector) updateCgroupMetrics() {
 			c.ContainersMetrics[key].CgroupStatHandler = handler
 		}
 		err := c.ContainersMetrics[key].UpdateCgroupMetrics()
-		// if the cgroup metrics of a container does not exist, it means that the container was deleted
-		if key != c.systemProcessName && !kubernetes.IsWatcherEnabled && err != nil {
-			delete(c.ContainersMetrics, key)
-		}
 		if err != nil {
-			klog.V(1).Infof("Cannot UpdateCgroupMetrics %s: %v)", c.ContainersMetrics[key].ContainerName, err)
+			// When watcher is not available, the cgroup metrics of a container does not exist, it means that the container was deleted
+			if key != c.systemProcessName {
+				klog.Infof("cannot UpdateCgroupMetrics %s: %v", c.ContainersMetrics[key].PodName, err)
+				if !kubernetes.IsWatcherEnabled {
+					klog.Infof("delete: %s from ContainersMetrics on cgroup update", c.ContainersMetrics[key].PodName)
+					delete(c.ContainersMetrics, key)
+				}
+			}
 		}
 	}
 }

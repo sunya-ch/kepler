@@ -30,10 +30,15 @@ limitations under the License.
 #define HZ 1000
 #endif
 
+#ifndef MAX_THREADS
+#define MAX_THREADS 65536
+#endif
+
 typedef struct process_metrics_t
 {
     u64 cgroup_id;
     u64 pid;
+    u64 nnode;
     u64 process_run_time;
     u64 cpu_cycles;
     u64 cpu_instr;
@@ -48,8 +53,14 @@ typedef struct pid_time_t
     u32 cpu;
 } pid_time_t;
 
+typedef struct pid_numa_t
+{
+    u32 pid;
+    u64 nnode;
+} pid_numa_t;
+
 // processes and pid time
-BPF_HASH(processes, u64, process_metrics_t);
+BPF_HASH(processes, pid_numa_t, process_metrics_t, MAX_THREADS);
 BPF_HASH(pid_time, pid_time_t);
 
 // perf counters
@@ -200,6 +211,7 @@ int kprobe__finish_task_switch(struct pt_regs *ctx, struct task_struct *prev)
 
     u64 cur_ts = bpf_ktime_get_ns();
     u32 cpu_id = bpf_get_smp_processor_id();
+    u64 numa_id = bpf_get_numa_node_id();
     u64 prev_pid = prev->pid;
     u64 on_cpu_time_delta = get_on_cpu_time(cur_pid, prev_pid, cpu_id, cur_ts);
     u64 on_cpu_cycles_delta = get_on_cpu_cycles(&cpu_id);
@@ -210,7 +222,8 @@ int kprobe__finish_task_switch(struct pt_regs *ctx, struct task_struct *prev)
 
     // store process metrics
     struct process_metrics_t *process_metrics;
-    process_metrics = processes.lookup(&prev_pid);
+    pid_numa_t prev_pid_numa = {.pid = prev_pid, .nnode = numa_id};
+    process_metrics = processes.lookup(&prev_pid_numa);
     if (process_metrics != 0)
     {
         // update process time
@@ -221,19 +234,22 @@ int kprobe__finish_task_switch(struct pt_regs *ctx, struct task_struct *prev)
         process_metrics->cache_miss += on_cpu_cache_miss_delta;
     }
 
-    process_metrics = processes.lookup(&cur_pid);
+    pid_numa_t cur_pid_numa = {.pid = cur_pid, .nnode = numa_id};
+    process_metrics = processes.lookup(&cur_pid_numa);
     if (process_metrics == 0)
     {
         process_metrics_t new_process = {};
         new_process.pid = cur_pid;
+        new_process.nnode = numa_id;
         new_process.cgroup_id = cgroup_id;
         bpf_get_current_comm(&new_process.comm, sizeof(new_process.comm));
-        processes.update(&cur_pid, &new_process);
+        processes.update(&cur_pid_numa, &new_process);
     }
 
     return 0;
 }
 
+#ifdef SET_IRQ
 // per https://www.kernel.org/doc/html/latest/core-api/tracepoint.html#c.trace_softirq_entry
 TRACEPOINT_PROBE(irq, softirq_entry)
 {
@@ -248,3 +264,4 @@ TRACEPOINT_PROBE(irq, softirq_entry)
     }
     return 0;
 }
+#endif

@@ -193,9 +193,8 @@ cross-build: clean_build_local cross-build-linux-amd64 cross-build-linux-arm64 c
 
 ### toolkit ###
 tidy-vendor:
-	go mod tidy -v
-	go mod vendor
-
+	go mod tidy -v 
+	
 ginkgo-set:
 	mkdir -p $(GOBIN)
 	mkdir -p ${ENVTEST_ASSETS_DIR}

@@ -4,6 +4,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	collector_metric "github.com/sustainable-computing-io/kepler/pkg/collector/metric"
+	"github.com/sustainable-computing-io/kepler/pkg/kubernetes"
 
 	"github.com/sustainable-computing-io/kepler/pkg/bpfassets/attacher"
 	"github.com/sustainable-computing-io/kepler/pkg/cgroup"
@@ -118,7 +119,8 @@ func createMockNodeMetrics(containersMetrics map[string]*collector_metric.Contai
 }
 
 func newMockCollector() *Collector {
-	metricCollector := NewCollector()
+	watcherQueue := make(chan kubernetes.DeleteEvent)
+	metricCollector := NewCollector(watcherQueue)
 	metricCollector.ContainersMetrics = createMockContainersMetrics()
 	metricCollector.ProcessMetrics = map[uint64]*collector_metric.ProcessMetrics{}
 	metricCollector.NodeMetrics = createMockNodeMetrics(metricCollector.ContainersMetrics)

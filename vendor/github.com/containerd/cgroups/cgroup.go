@@ -80,12 +80,13 @@ func Load(hierarchy Hierarchy, path Path, opts ...InitOpts) (Cgroup, error) {
 	if err != nil {
 		return nil, err
 	}
+	msg := ""
 	// check that the subsystems still exist, and keep only those that actually exist
 	for _, s := range pathers(subsystems) {
 		p, err := path(s.Name())
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				return nil, ErrCgroupDeleted
+				return nil, fmt.Errorf("%s, %v", s.Name(), ErrCgroupDeleted)
 			}
 			if err == ErrControllerNotActive {
 				if config.InitCheck != nil {
@@ -95,12 +96,14 @@ func Load(hierarchy Hierarchy, path Path, opts ...InitOpts) (Cgroup, error) {
 						}
 					}
 				}
+				msg = fmt.Sprintf("%s not active, %s", s.Name(), msg)
 				continue
 			}
 			return nil, err
 		}
 		if _, err := os.Lstat(s.Path(p)); err != nil {
 			if os.IsNotExist(err) {
+				msg = fmt.Sprintf("%s not found, %s", s.Path(p), msg)
 				continue
 			}
 			return nil, err
@@ -109,7 +112,7 @@ func Load(hierarchy Hierarchy, path Path, opts ...InitOpts) (Cgroup, error) {
 	}
 	// if we do not have any active systems then the cgroup is deleted
 	if len(activeSubsystems) == 0 {
-		return nil, ErrCgroupDeleted
+		return nil, fmt.Errorf("No active subsystem %s, %v", msg, ErrCgroupDeleted)
 	}
 	return &cgroup{
 		path:       path,

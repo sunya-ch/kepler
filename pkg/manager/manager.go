@@ -20,13 +20,13 @@ import (
 	"time"
 
 	"github.com/sustainable-computing-io/kepler/pkg/collector"
+	"github.com/sustainable-computing-io/kepler/pkg/config"
 	"github.com/sustainable-computing-io/kepler/pkg/kubernetes"
 )
 
-const (
+var (
 	// SamplePeriodSec is the time in seconds that the reader will wait before reading the metrics again
-	SamplePeriodSec = 3
-	samplePeriod    = SamplePeriodSec * 1000 * time.Millisecond
+	samplePeriod time.Duration = time.Duration(config.SamplePeriodSec) * time.Second
 )
 
 type CollectorManager struct {
@@ -41,16 +41,17 @@ type CollectorManager struct {
 }
 
 func New() *CollectorManager {
+	watcherQueue := make(chan kubernetes.DeleteEvent)
 	manager := &CollectorManager{}
-	manager.MetricCollector = collector.NewCollector()
+	manager.MetricCollector = collector.NewCollector(watcherQueue)
 	manager.PrometheusCollector = collector.NewPrometheusExporter()
 	// the collector and prometheusExporter share structures and collections
 	manager.PrometheusCollector.NodeMetrics = &manager.MetricCollector.NodeMetrics
 	manager.PrometheusCollector.ContainersMetrics = &manager.MetricCollector.ContainersMetrics
 	manager.PrometheusCollector.ProcessMetrics = &manager.MetricCollector.ProcessMetrics
-	manager.PrometheusCollector.SamplePeriodSec = SamplePeriodSec
+	manager.PrometheusCollector.SamplePeriodSec = float64(config.SamplePeriodSec)
 	// configure the watcher
-	manager.Watcher = kubernetes.NewObjListWatcher()
+	manager.Watcher = kubernetes.NewObjListWatcher(watcherQueue)
 	manager.Watcher.Mx = &manager.PrometheusCollector.Mx
 	manager.Watcher.ContainersMetrics = &manager.MetricCollector.ContainersMetrics
 	manager.Watcher.Run()
@@ -63,6 +64,7 @@ func (m *CollectorManager) Start() error {
 	}
 
 	go func() {
+		defer close(m.Watcher.WatcherDeleteQueue)
 		ticker := time.NewTicker(samplePeriod)
 		for {
 			// wait x seconds before updating the metrics

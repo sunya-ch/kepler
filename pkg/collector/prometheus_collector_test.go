@@ -35,10 +35,9 @@ import (
 	collector_metric "github.com/sustainable-computing-io/kepler/pkg/collector/metric"
 	"github.com/sustainable-computing-io/kepler/pkg/collector/metric/types"
 	"github.com/sustainable-computing-io/kepler/pkg/config"
+	"github.com/sustainable-computing-io/kepler/pkg/model/estimator/local"
 	"github.com/sustainable-computing-io/kepler/pkg/power/accelerator"
 	"github.com/sustainable-computing-io/kepler/pkg/power/components/source"
-
-	"github.com/sustainable-computing-io/kepler/pkg/model/estimator/local"
 )
 
 const (
@@ -68,7 +67,7 @@ func newMockPrometheusExporter() *PrometheusCollector {
 	exporter.NodeMetrics = collector_metric.NewNodeMetrics()
 	exporter.ContainersMetrics = &map[string]*collector_metric.ContainerMetrics{}
 	exporter.ProcessMetrics = &map[uint64]*collector_metric.ProcessMetrics{}
-	exporter.SamplePeriodSec = 3.0
+	exporter.SamplePeriodSec = float64(config.SamplePeriodSec)
 	collector_metric.ContainerMetricNames = []string{config.CoreUsageMetric}
 	return exporter
 }

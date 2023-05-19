@@ -44,7 +44,7 @@ const (
 	unknownPath string = "unknown"
 
 	procPath   string = "/host/proc/%d/cgroup"
-	cgroupPath string = "/host/sys/fs/cgroup"
+	cgroupPath string = "/sys/fs/cgroup"
 )
 
 var (
@@ -222,7 +222,7 @@ func GetContainerIDFromPID(pid uint64) (string, error) {
 	}
 
 	containerID, err := extractPodContainerIDfromPath(path)
-	klog.V(3).Infof("extractPodContainerIDfromPath %d %s %s", pid, path, containerID)
+	klog.V(3).Infof("PID-extractPodContainerIDfromPath %d %s %s", pid, path, containerID)
 	AddContainerIDToCache(pid, containerID)
 	return containerIDCache[pid], err
 }
@@ -258,7 +258,7 @@ func getContainerIDFromcGroupID(cGroupID uint64) (string, error) {
 	}
 
 	containerID, err := extractPodContainerIDfromPath(path)
-	klog.V(3).Infof("extractPodContainerIDfromPath (cGroupID %d) %s %s", cGroupID, path, containerID)
+	klog.V(3).Infof("cGroupID-extractPodContainerIDfromPath (cGroupID %d) %s %s", cGroupID, path, containerID)
 	AddContainerIDToCache(cGroupID, containerID)
 	return containerIDCache[cGroupID], err
 }
@@ -313,14 +313,14 @@ func extractPodContainerIDfromPath(path string) (string, error) {
 			}
 		}
 	}
-	// as some platforms (e.g. RHEL) have a different cgroup path, if the cgroup path has information from a pod and we can't get the container id
-	// with the previous regex, we'll try to get it using a different approach
-	if regexFindContainerIDPath2.MatchString(path) {
-		sub := regexFindContainerIDPath2.FindAllString(path, -1)
-		for _, containerID := range sub {
-			return containerID, nil
-		}
-	}
+	// // as some platforms (e.g. RHEL) have a different cgroup path, if the cgroup path has information from a pod and we can't get the container id
+	// // with the previous regex, we'll try to get it using a different approach
+	// if regexFindContainerIDPath2.MatchString(path) {
+	// 	sub := regexFindContainerIDPath2.FindAllString(path, -1)
+	// 	for _, containerID := range sub {
+	// 		return containerID, nil
+	// 	}
+	// }
 
 	splits := strings.Split(path, "/")
 	if len(splits) == 1 {

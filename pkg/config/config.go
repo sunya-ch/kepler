@@ -112,6 +112,8 @@ var (
 	KubeConfig = ""
 
 	HostPIDNamespace = utils.GetPIDNamespace(1)
+
+	SamplePeriodSec = getIntConfig("SAMPLE_PERIOD_SEC", 3)
 )
 
 func logBoolConfigs() {
@@ -137,6 +139,16 @@ func getBoolConfig(configKey string, defaultBool bool) bool {
 		defaultValue = "true"
 	}
 	return strings.ToLower(getConfig(configKey, defaultValue)) == "true"
+}
+
+func getIntConfig(configKey string, defaultInt int) int {
+	defaultValue := fmt.Sprintf("%d", defaultInt)
+	configValue := getConfig(configKey, defaultValue)
+	val, err := strconv.Atoi(configValue)
+	if err != nil {
+		return defaultInt
+	}
+	return val
 }
 
 func getConfig(configKey, defaultValue string) (result string) {

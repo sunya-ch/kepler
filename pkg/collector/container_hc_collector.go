@@ -19,6 +19,7 @@ package collector
 import (
 	"bytes"
 	"encoding/binary"
+	"time"
 
 	"unsafe"
 
@@ -106,34 +107,51 @@ func (c *Collector) updateHWCounters(containerID string, ct *ProcessBPFMetrics, 
 	}
 }
 
+func (c *Collector) cleanBPF(keysToDelete [][]byte) {
+	// deleting the element to reset the counter values
+	if config.EnabledBPFBatchDelete {
+		err := attacher.TableDeleteBatch(c.bpfHCMeter.Module, c.bpfHCMeter.TableName, keysToDelete)
+		if err != nil {
+			// if batch delete is not supported we disable it for the next time
+			c.bpfHCMeter.Table.DeleteAll()
+			config.EnabledBPFBatchDelete = false
+			klog.Infof("resetting EnabledBPFBatchDelete to %v: %v", config.EnabledBPFBatchDelete, err)
+		}
+	} else {
+		c.bpfHCMeter.Table.DeleteAll()
+	}
+
+}
+
 // updateBPFMetrics reads the BPF tables with process/pid/cgroupid metrics (CPU time, available HW counters)
-func (c *Collector) updateBPFMetrics() {
+func (c *Collector) updateBPFMetrics() (bpfTableCleanUpTimestamp time.Time) {
 	if c.bpfHCMeter == nil {
+		bpfTableCleanUpTimestamp = time.Now()
 		return
 	}
-	foundContainer := make(map[string]bool)
-	foundProcess := make(map[uint64]bool)
-	keysToDelete := [][]byte{}
-	var ct ProcessBPFMetrics
+	//	keysToDelete := [][]byte{}
+	// snapshot data
+	bpfTableData := []ProcessBPFMetrics{}
 	for it := c.bpfHCMeter.Table.Iter(); it.Next(); {
-		key := it.Key()
+		// key := it.Key()
 		data := it.Leaf()
+		var ct ProcessBPFMetrics
 		err := binary.Read(bytes.NewBuffer(data), utils.DetermineHostByteOrder(), &ct)
 		if err != nil {
-			klog.V(5).Infof("failed to decode received data: %v", err)
+			klog.V(2).Infof("failed to decode received data: %v", err)
 			continue // this only happens if there is a problem in the bpf code
 		}
-
+		bpfTableData = append(bpfTableData, ct)
 		// if ebpf map batch deletion operation is supported we add the key to the list otherwise we delete the key
-		if config.EnabledBPFBatchDelete {
-			keysToDelete = append(keysToDelete, key)
-		} else {
-			err = c.bpfHCMeter.Table.Delete(key) // deleting the element to reset the counter values
-			if err != nil {
-				klog.Infof("could not delete bpf table elemets, err: %v", err)
-			}
-		}
+		//keysToDelete = append(keysToDelete, key)
+	}
+	// c.cleanBPF(keysToDelete)
+	c.bpfHCMeter.Table.DeleteAll()
+	bpfTableCleanUpTimestamp = time.Now()
 
+	foundContainer := make(map[string]bool)
+	foundProcess := make(map[uint64]bool)
+	for _, ct := range bpfTableData {
 		comm := C.GoString((*C.char)(unsafe.Pointer(&ct.Command)))
 
 		containerID, err := cgroup.GetContainerID(ct.CGroupID, ct.PID, config.EnabledEBPFCgroupID)
@@ -142,17 +160,16 @@ func (c *Collector) updateBPFMetrics() {
 		}
 
 		isSystemProcess := containerID == c.systemProcessName
-		// if isSystemProcess {
-		// 	klog.V(3).Infof("System process command: %s (cGroup ID %v, pid %d, numa: %d)", comm, ct.CGroupID, ct.PID, ct.NumaNode)
-		// } else {
-		// 	_, containerOK := c.ContainersMetrics[containerID]
-		// 	if !containerOK {
-		// 		klog.V(1).Infof("Non-system process command: %s (cGroup ID %v, pid %d, containerID: %s) - Not OK", comm, ct.CGroupID, ct.PID, containerID)
-		// 		for containerIDkey := range c.ContainersMetrics {
-		// 			klog.V(1).Infof("(%s %s)", containerIDkey, c.ContainersMetrics[containerIDkey].ContainerName)
-		// 		}
-		// 	}
-		// }
+		if !isSystemProcess {
+			_, containerOK := c.ContainersMetrics[containerID]
+			if !containerOK {
+				// Warning: found containerID but not in ContainersMetrics will be set as system_process
+				klog.V(1).Infof("Non-system process command: %s (cGroup ID %v, pid %d, containerID: %s) - Not OK", comm, ct.CGroupID, ct.PID, containerID)
+				for containerIDkey := range c.ContainersMetrics {
+					klog.V(3).Infof("(%s %s)", containerIDkey, c.ContainersMetrics[containerIDkey].ContainerName)
+				}
+			}
+		}
 		c.createContainersMetricsIfNotExist(containerID, ct.CGroupID, ct.PID, config.EnabledEBPFCgroupID)
 		c.ContainersMetrics[containerID].PID = ct.PID
 		// System process is the aggregation of all background process running outside kubernetes
@@ -178,22 +195,14 @@ func (c *Collector) updateBPFMetrics() {
 			foundProcess[ct.PID] = true
 		}
 	}
-	if config.EnabledBPFBatchDelete {
-		err := attacher.TableDeleteBatch(c.bpfHCMeter.Module, c.bpfHCMeter.TableName, keysToDelete)
-		// if the kernel does not support delete batch we delete all keys one by one
-		if err != nil {
-			c.bpfHCMeter.Table.DeleteAll()
-			// if batch delete is not supported we disable it for the next time
-			config.EnabledBPFBatchDelete = false
-			klog.Infof("resetting EnabledBPFBatchDelete to %v", config.EnabledBPFBatchDelete)
-		}
-	}
+	klog.V(2).Infof("Total collected entry: %d", len(bpfTableData))
 	if !kubernetes.IsWatcherEnabled {
 		c.handleInactiveContainers(foundContainer)
 	}
 	if config.EnableProcessMetrics {
 		c.handleInactiveProcesses(foundProcess)
 	}
+	return
 }
 
 // handleInactiveContainers
@@ -210,6 +219,7 @@ func (c *Collector) handleInactiveContainers(foundContainer map[string]bool) {
 				continue
 			}
 			if _, found := aliveContainers[containerID]; !found {
+				klog.V(2).Infof("delete: %s from ContainersMetrics", c.ContainersMetrics[containerID].PodName)
 				delete(c.ContainersMetrics, containerID)
 			}
 		}

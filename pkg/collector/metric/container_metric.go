@@ -325,13 +325,16 @@ func (c *ContainerMetrics) GetIdleEnergyStat(component string) (energyStat *type
 
 func (c *ContainerMetrics) GetCPUUsagePerPackageRatio() (ratio map[string]float64) {
 	ratio = make(map[string]float64)
-	totalTime := c.CPUTime.Delta
-	if totalTime == 0 {
-		// no CPU time usage
+	var total float64 = 0
+	for _, stat := range c.CPUUsagePerPackage.Stat {
+		total += float64(stat.Delta)
+	}
+	if total == 0 {
+		// no record
 		return
 	}
-	for packageID, cpuTimeStat := range c.CPUUsagePerPackage.Stat {
-		ratio[packageID] = float64(cpuTimeStat.Delta) / float64(totalTime)
+	for packageID, stat := range c.CPUUsagePerPackage.Stat {
+		ratio[packageID] = float64(stat.Delta) / total
 	}
 	return
 }
