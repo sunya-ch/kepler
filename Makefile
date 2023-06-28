@@ -1,3 +1,5 @@
+include bpfassets/Makefile
+
 ### env define ###
 export BIN_TIMESTAMP ?=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
 export TIMESTAMP ?=$(shell echo $(BIN_TIMESTAMP) | tr -d ':' | tr 'T' '-' | tr -d 'Z')
@@ -53,15 +55,25 @@ endif
 
 GO_LD_FLAGS := $(GC_FLAGS) -ldflags "-X $(LD_FLAGS)" $(CFLAGS)
 
+# set GOENV
 GOOS := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
+LIBBPF_HEADERS := /usr/include/bpf
+LIBBPF_OBJ := /usr/lib/$(ARCH)-linux-gnu/libbpf.a
+
+ifeq ($(wildcard $(LIBBPF_OBJ)),)
+    GOENV := GOOS=$(GOOS) GOARCH=$(GOARCH)
+else
+	GOENV := GO111MODULE="" GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 CC=clang CGO_CFLAGS="-I $(LIBBPF_HEADERS)" CGO_LDFLAGS="$(LIBBPF_OBJ)"
+endif
 
 GENERAL_TAGS := 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo gpu '
 BCC_TAG := ''
+LIBBPF_TAG := ''
 ifneq ($(shell command -v ldconfig),)
-  ifneq ($(shell ldconfig -p|grep bcc),)
-     BCC_TAG = 'bcc '
-  endif
+	ifneq ($(shell ldconfig -p|grep bcc),)
+		BCC_TAG = 'bcc '
+  	endif
 endif
 
 ifneq ($(shell command -v dpkg),)
@@ -69,8 +81,20 @@ ifneq ($(shell command -v dpkg),)
 		BCC_TAG = 'bcc '
 	endif
 endif
-GO_BUILD_TAGS := $(GENERAL_TAGS)$(BCC_TAG)$(GOOS)
 
+ifneq ($(shell command -v ldconfig),)
+	ifneq ($(shell ldconfig -p|grep libbpf),)
+     LIBBPF_TAG = 'libbpf '
+	endif
+endif
+
+ifneq ($(shell command -v dpkg),)
+	ifneq ($(shell dpkg -l|grep libbpf-dev),)
+		LIBBPF_TAG = 'libbpf '
+	endif
+endif
+
+GO_BUILD_TAGS := $(GENERAL_TAGS)$(BCC_TAG)$(LIBBPF_TAG)$(GOOS)
 
 # for testsuite
 ENVTEST_ASSETS_DIR=./test-bin
@@ -140,8 +164,7 @@ build: clean_build_local _build_local copy_build_local
 
 _build_local: tidy-vendor format
 	@mkdir -p "$(CROSS_BUILD_BINDIR)/$(GOOS)_$(GOARCH)"
-	+@GOOS=$(GOOS) GOARCH=$(GOARCH) go build -v -tags ${GO_BUILD_TAGS} \
-		-o $(CROSS_BUILD_BINDIR)/$(GOOS)_$(GOARCH)/kepler -ldflags $(LDFLAGS) ./cmd/exporter.go
+	+@$(GOENV) go build -v -tags ${GO_BUILD_TAGS} -o $(CROSS_BUILD_BINDIR)/$(GOOS)_$(GOARCH)/kepler -ldflags $(LDFLAGS) ./cmd/exporter.go
 
 container_build: tidy-vendor format
 	$(CTR_CMD) run --rm \
@@ -208,16 +231,16 @@ ginkgo-set:
 	  cp $(GOBIN)/ginkgo $(ENVTEST_ASSETS_DIR)/ginkgo)
 
 test: ginkgo-set tidy-vendor
-	@go test -tags $(GO_BUILD_TAGS) ./... --race --bench=. -cover --count=1 --vet=all
+	@$(GOENV) go test -tags $(GO_BUILD_TAGS) ./... --race --bench=. -cover --count=1 --vet=all
 
 test-verbose: ginkgo-set tidy-vendor
-	@go test -tags $(GO_BUILD_TAGS) -covermode=atomic -coverprofile=coverage.out -v $$(go list ./... | grep pkg | grep -v bpfassets) --race --bench=. -cover --count=1 --vet=all
+	@$(GOENV) go test -tags $(GO_BUILD_TAGS) -covermode=atomic -coverprofile=coverage.out -v $$(go list ./... | grep pkg | grep -v bpfassets) --race --bench=. -cover --count=1 --vet=all
 	
 test-mac-verbose: ginkgo-set
 	@go test $$(go list ./... | grep pkg | grep -v bpfassets) --race --bench=. -cover --count=1 --vet=all
 
 escapes_detect: tidy-vendor
-	@go build -tags $(GO_BUILD_TAGS) -gcflags="-m -l" ./... 2>&1 | grep "escapes to heap" || true
+	@$(GOENV) go build -tags $(GO_BUILD_TAGS) -gcflags="-m -l" ./... 2>&1 | grep "escapes to heap" || true
 
 set_govulncheck:
 	@go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -241,6 +264,8 @@ genbpfassets:
 	GO111MODULE=off go get -u github.com/go-bindata/go-bindata/...
 	./hack/bindata.sh
 .PHONY: genbpfassets
+
+genlibbpf: kepler.bpf.o
 
 ### k8s ###
 kustomize: ## Download kustomize locally if necessary.
