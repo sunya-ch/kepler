@@ -1,8 +1,9 @@
 name: Integration test
 
 on:
-  pull_request:
-
+  push:
+    branches: [ kepler-bpf-test ]
+    
 jobs:
   integration_test:
     runs-on: ubuntu-20.04
