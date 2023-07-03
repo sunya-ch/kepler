@@ -23,6 +23,10 @@ import (
 	"fmt"
 )
 
+const (
+	LibbpfBuilt = false
+)
+
 func attachLibbpfModule() (interface{}, error) {
 	return nil, fmt.Errorf("no libbpf build tag")
 }

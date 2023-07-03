@@ -115,7 +115,10 @@ func CollectCPUFreq() (cpuFreqData map[int32]uint64, err error) {
 }
 
 func Attach() (interface{}, error) {
-	if config.UseLibBPFAttacher {
+	if !BccBuilt && LibbpfBuilt {
+		config.UseLibBPFAttacher = true
+	}
+	if config.UseLibBPFAttacher && LibbpfBuilt {
 		m, err := attachLibbpfModule()
 		if err == nil {
 			return m, err

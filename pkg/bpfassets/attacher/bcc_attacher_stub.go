@@ -23,6 +23,10 @@ import (
 	"fmt"
 )
 
+const (
+	BccBuilt = false
+)
+
 func attachBccModule() (interface{}, error) {
 	return nil, fmt.Errorf("no bcc build tag")
 }

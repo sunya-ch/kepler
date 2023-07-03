@@ -57,8 +57,8 @@ type BccModuleTables struct {
 }
 
 var (
-	bccModule   *BccModuleTables
-	bccCounters = map[string]perfCounter{
+	bccModule   *BccModuleTables = nil
+	bccCounters                  = map[string]perfCounter{
 		CPUCycleLabel:       {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_CPU_CYCLES, true},
 		CPURefCycleLabel:    {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_REF_CPU_CYCLES, true},
 		CPUInstructionLabel: {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_INSTRUCTIONS, true},
@@ -71,6 +71,10 @@ var (
 	ebpfBatchGet = true
 	// ebpfBatchGetAndDelete is true if delete all the keys after batch get
 	ebpfBatchGetAndDelete = ebpfBatchGet
+)
+
+const (
+	BccBuilt = false
 )
 
 func loadBccModule(objProg []byte, options []string) (m *bpf.Module, err error) {
@@ -186,8 +190,13 @@ func attachBccModule() (*BccModuleTables, error) {
 }
 
 func detachBccModule() {
-	closePerfEvent()
-	bccModule.Module.Close()
+	if bccModule != nil {
+		closePerfEvent()
+		if bccModule.Module != nil {
+			bccModule.Module.Close()
+			bccModule = nil
+		}
+	}
 }
 
 func bccCollectProcess() (processesData []ProcessBPFMetrics, err error) {
@@ -325,6 +334,7 @@ func closePerfEvent() {
 			C.bpf_close_perf_event_fd((C.int)(v))
 		}
 	}
+	PerfEvents = map[string][]int{}
 }
 
 func tableDeleteBatch(module *bpf.Module, tableName string, keys [][]byte) error {

@@ -3,7 +3,7 @@ name: Integration test
 on:
   push:
     branches: [ kepler-bpf-test ]
-    
+
 jobs:
   integration_test:
     runs-on: ubuntu-20.04

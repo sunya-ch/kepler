@@ -40,11 +40,15 @@ const (
 	objectFilename      = "kepler.bpf.o"
 	bpfAssesstsLocation = "/var/lib/kepler/bpfassets"
 	cpuOnline           = "/sys/devices/system/cpu/online"
+
+	LibbpfBuilt = true
+
+	maxRetry = 5
 )
 
 var (
-	libbpfModule   *bpf.Module
-	libbpfCounters = map[string]perfCounter{
+	libbpfModule   *bpf.Module = nil
+	libbpfCounters             = map[string]perfCounter{
 		CPUCycleLabel:       {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_CPU_CYCLES, true},
 		CPURefCycleLabel:    {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_REF_CPU_CYCLES, true},
 		CPUInstructionLabel: {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_INSTRUCTIONS, true},
@@ -141,6 +145,7 @@ func detachLibbpfModule() {
 	unixClosePerfEvent()
 	if libbpfModule != nil {
 		libbpfModule.Close()
+		libbpfModule = nil
 	}
 }
 
@@ -159,21 +164,32 @@ func libbpfCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 	var ct ProcessBPFMetrics
 	valueSize := int(unsafe.Sizeof(ProcessBPFMetrics{}))
 	keys := []uint32{}
-	for iterator.Next() {
+	retry := 0
+	next := iterator.Next()
+	for next {
 		keyBytes := iterator.Key()
 		key := ByteOrder.Uint32(keyBytes)
 		data, getErr := processes.GetValue(key, valueSize)
 		if getErr != nil {
-			klog.Infof("failed to get data: %v\n", getErr)
+			retry += 1
+			if retry > maxRetry {
+				klog.Infof("failed to get data: %v, retry: %d \n", getErr, maxRetry)
+				next = iterator.Next()
+				retry = 0
+			}
 			continue
 		}
 		getErr = binary.Read(bytes.NewBuffer(data), ByteOrder, &ct)
 		if getErr != nil {
-			klog.Infof("failed to decode received data: %v\n", getErr)
+			klog.Infof("failed to decode received data: %v, retry\n", getErr)
+			next = iterator.Next()
+			retry = 0
 			continue
 		}
 		processesData = append(processesData, ct)
 		keys = append(keys, key)
+		next = iterator.Next()
+		retry = 0
 	}
 	for _, key := range keys {
 		processes.DeleteKey(key)
@@ -191,20 +207,31 @@ func libbpfCollectFreq() (cpuFreqData map[int32]uint64, err error) {
 	iterator := cpuFreq.Iterator(CPUNumSize)
 	var freq uint32
 	valueSize := int(unsafe.Sizeof(freq))
-	for iterator.Next() {
+	retry := 0
+	next := iterator.Next()
+	for next {
 		keyBytes := iterator.Key()
 		cpu := int32(ByteOrder.Uint32(keyBytes))
 		data, getErr := cpuFreq.GetValue(cpu, valueSize)
 		if getErr != nil {
-			klog.Infof("failed to get data: %v\n", getErr)
+			retry += 1
+			if retry > maxRetry {
+				klog.Infof("failed to get data: %v, retry: %d \n", getErr, maxRetry)
+				next = iterator.Next()
+				retry = 0
+			}
 			continue
 		}
 		getErr = binary.Read(bytes.NewBuffer(data), ByteOrder, &freq)
 		if getErr != nil {
-			klog.Infof("failed to decode received data: %v\n", getErr)
+			klog.Infof("failed to decode received data: %v, retry\n", getErr)
+			next = iterator.Next()
+			retry = 0
 			continue
 		}
 		cpuFreqData[cpu] = uint64(freq)
+		next = iterator.Next()
+		retry = 0
 	}
 	return
 }
@@ -257,6 +284,7 @@ func unixClosePerfEvent() {
 			unix.Close(fd)
 		}
 	}
+	PerfEvents = map[string][]int{}
 }
 
 func getOnlineCPUs() ([]uint, error) {
