@@ -74,7 +74,7 @@ var (
 )
 
 const (
-	BccBuilt = false
+	BccBuilt = true
 )
 
 func loadBccModule(objProg []byte, options []string) (m *bpf.Module, err error) {
@@ -100,13 +100,15 @@ func loadBccModule(objProg []byte, options []string) (m *bpf.Module, err error) 
 			return nil, fmt.Errorf("failed to attach finish_task_switch: %s", err)
 		}
 	}
+
 	softirqEntry, err := m.LoadTracepoint("tracepoint__irq__softirq_entry")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load softirq_entry: %s", err)
-	}
-	err = m.AttachTracepoint("irq:softirq_entry", softirqEntry)
-	if err != nil {
-		return nil, fmt.Errorf("failed to attach softirq_entry: %s", err)
+	if err == nil {
+		err = m.AttachTracepoint("irq:softirq_entry", softirqEntry)
+		if err != nil {
+			klog.Infof("failed to attach softirq_entry: %s", err)
+		}
+	} else {
+		klog.Infof("failed to load softirq_entry: %s", err)
 	}
 
 	// set counters
@@ -128,7 +130,7 @@ func loadBccModule(objProg []byte, options []string) (m *bpf.Module, err error) 
 			HardwareCountersEnabled = false
 		}
 	}
-	return m, err
+	return m, nil
 }
 
 func attachBccModule() (*BccModuleTables, error) {
@@ -184,7 +186,7 @@ func attachBccModule() (*BccModuleTables, error) {
 	bccModule.TableName = TableProcessName
 	bccModule.CPUFreqTable = cpuFreqTable
 
-	klog.Infof("Successfully load eBPF module with option: %s", options)
+	klog.Infof("Successfully load eBPF module from bcc with option: %s", options)
 
 	return bccModule, nil
 }

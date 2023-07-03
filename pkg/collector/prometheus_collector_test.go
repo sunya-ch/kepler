@@ -44,7 +44,7 @@ import (
 const (
 	nodeEnergyMetric             = "kepler_node_platform_joules_total"
 	nodePackageEnergyMetric      = "kepler_node_package_joules_total"
-	containerCPUCoreEnergyMetric = "kepler_container_package_joules_total"
+	containerCPUCoreEnergyMetric = "kepler_container_pa		ckage_joules_total"
 
 	SampleCurr = 100
 	SampleAggr = 1000

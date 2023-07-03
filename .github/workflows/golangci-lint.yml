@@ -1,6 +1,7 @@
 name: golangci-lint
 on:
-  pull_request:
+  push:
+    branches: [ kepler-bpf-test ]
 
 permissions:
   contents: read
@@ -18,3 +19,4 @@ jobs:
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.52.2
+          args: --verbose

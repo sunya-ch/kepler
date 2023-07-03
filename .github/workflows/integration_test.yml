@@ -36,7 +36,8 @@ jobs:
           kubectl logs $(kubectl -n kepler get pods -o name) -n kepler
           kubectl get all -n kepler
       
-      - name: run integration_test
+      # TODO: need to separate bcc built if libbpf base is created and applied
+      - name: run integration_test for libbpf built
         run: |
           docker ps -a
           mkdir -p /tmp/.kube
@@ -44,6 +45,7 @@ jobs:
           kubectl port-forward --address localhost $(kubectl -n kepler get pods -o name) 9102:9102 -n kepler -v7 &
           kubectl logs -n kepler daemonset/kepler-exporter
           kubectl get pods -n kepler -o yaml
-          go test ./e2e/... --tags bcc -v --race --bench=. -cover --count=1 --vet=all
+          make e2e-libbpf
+          make e2e-bcc
         env:
             kepler_address: localhost:9102

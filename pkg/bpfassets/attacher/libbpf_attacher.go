@@ -28,6 +28,7 @@ import (
 	"io/ioutil"
 	"k8s.io/klog/v2"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -37,13 +38,13 @@ import (
 )
 
 const (
-	objectFilename      = "kepler.bpf.o"
-	bpfAssesstsLocation = "/var/lib/kepler/bpfassets"
-	cpuOnline           = "/sys/devices/system/cpu/online"
+	objectFilename       = "kepler.bpf.o"
+	bpfAssesstsLocation  = "/var/lib/kepler/bpfassets"
+	bpfAssesstsLocalPath = "../../../bpfassets/libbpf/bpf.o"
+	cpuOnline            = "/sys/devices/system/cpu/online"
 
 	LibbpfBuilt = true
-
-	maxRetry = 5
+	maxRetry    = 500
 )
 
 var (
@@ -54,19 +55,27 @@ var (
 		CPUInstructionLabel: {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_INSTRUCTIONS, true},
 		CacheMissLabel:      {unix.PERF_TYPE_HARDWARE, unix.PERF_COUNT_HW_CACHE_MISSES, true},
 	}
+	uint32Key uint32
+	uint64Key uint64
 )
 
 func getLibbpfObjectFilePath(arch string) (string, error) {
-	// replace amd64 with prebuilt x86_64
-	if arch == "amd64" {
-		return getLibbpfObjectFilePath("x86_64")
-	}
 	bpfassetsPath := fmt.Sprintf("%s/%s_%s", bpfAssesstsLocation, arch, objectFilename)
 	_, err := os.Stat(bpfassetsPath)
 	if err != nil {
-		return "", err
+		var absPath string
+		// try relative path
+		absPath, err = filepath.Abs(bpfAssesstsLocalPath)
+		if err != nil {
+			return "", err
+		}
+		bpfassetsPath = fmt.Sprintf("%s/%s_%s", absPath, arch, objectFilename)
+		_, err = os.Stat(bpfassetsPath)
+		if err != nil {
+			return "", err
+		}
 	}
-	return bpfassetsPath, err
+	return bpfassetsPath, nil
 }
 
 func attachLibbpfModule() (*bpf.Module, error) {
@@ -160,7 +169,8 @@ func libbpfCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 	if err != nil {
 		return
 	}
-	iterator := processes.Iterator(MapSize)
+	processKeySize := int(unsafe.Sizeof(uint64Key))
+	iterator := processes.Iterator(processKeySize)
 	var ct ProcessBPFMetrics
 	valueSize := int(unsafe.Sizeof(ProcessBPFMetrics{}))
 	keys := []uint32{}
@@ -173,7 +183,7 @@ func libbpfCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 		if getErr != nil {
 			retry += 1
 			if retry > maxRetry {
-				klog.Infof("failed to get data: %v, retry: %d \n", getErr, maxRetry)
+				klog.Infof("failed to get data: %v with max retry: %d \n", getErr, maxRetry)
 				next = iterator.Next()
 				retry = 0
 			}
@@ -181,7 +191,7 @@ func libbpfCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 		}
 		getErr = binary.Read(bytes.NewBuffer(data), ByteOrder, &ct)
 		if getErr != nil {
-			klog.Infof("failed to decode received data: %v, retry\n", getErr)
+			klog.Infof("failed to decode received data: %v\n", getErr)
 			next = iterator.Next()
 			retry = 0
 			continue
@@ -204,7 +214,8 @@ func libbpfCollectFreq() (cpuFreqData map[int32]uint64, err error) {
 	if err != nil {
 		return
 	}
-	iterator := cpuFreq.Iterator(CPUNumSize)
+	cpuFreqkeySize := int(unsafe.Sizeof(uint32Key))
+	iterator := cpuFreq.Iterator(cpuFreqkeySize)
 	var freq uint32
 	valueSize := int(unsafe.Sizeof(freq))
 	retry := 0
@@ -216,7 +227,7 @@ func libbpfCollectFreq() (cpuFreqData map[int32]uint64, err error) {
 		if getErr != nil {
 			retry += 1
 			if retry > maxRetry {
-				klog.Infof("failed to get data: %v, retry: %d \n", getErr, maxRetry)
+				klog.Infof("failed to get data: %v with max retry: %d \n", getErr, maxRetry)
 				next = iterator.Next()
 				retry = 0
 			}
@@ -224,7 +235,7 @@ func libbpfCollectFreq() (cpuFreqData map[int32]uint64, err error) {
 		}
 		getErr = binary.Read(bytes.NewBuffer(data), ByteOrder, &freq)
 		if getErr != nil {
-			klog.Infof("failed to decode received data: %v, retry\n", getErr)
+			klog.Infof("failed to decode received data: %v\n", getErr)
 			next = iterator.Next()
 			retry = 0
 			continue

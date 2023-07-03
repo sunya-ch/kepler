@@ -1,4 +1,4 @@
-include bpfassets/Makefile
+include bpfassets/libbpf/Makefile
 
 ### env define ###
 export BIN_TIMESTAMP ?=$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
@@ -53,48 +53,73 @@ else
 	GC_FLAGS =
 endif
 
+GENERAL_TAGS := 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo gpu '
+BCC_TAG := 
+LIBBPF_TAG := 
+
+ifneq ($(shell command -v ldconfig),)
+	ifneq ($(shell ldconfig -p|grep bcc),)
+		BCC_TAG = bcc
+  	endif
+endif
+
+ifneq ($(shell command -v dpkg),)
+	ifneq ($(shell dpkg -l|grep bcc),)
+		BCC_TAG = bcc
+	endif
+endif
+
+ifneq ($(shell command -v ldconfig),)
+	ifneq ($(shell ldconfig -p|grep libbpf),)
+     LIBBPF_TAG = libbpf
+	endif
+endif
+
+ifneq ($(shell command -v dpkg),)
+	ifneq ($(shell dpkg -l|grep libbpf-dev),)
+		LIBBPF_TAG = libbpf
+	endif
+endif
+
 GO_LD_FLAGS := $(GC_FLAGS) -ldflags "-X $(LD_FLAGS)" $(CFLAGS)
 
 # set GOENV
 GOOS := $(shell go env GOOS)
 GOARCH := $(shell go env GOARCH)
 LIBBPF_HEADERS := /usr/include/bpf
+KEPLER_OBJ_SRC := $(SRC_ROOT)/bpfassets/libbpf/bpf.o/$(GOARCH)_kepler.bpf.o
 LIBBPF_OBJ := /usr/lib/$(ARCH)-linux-gnu/libbpf.a
 
-ifeq ($(wildcard $(LIBBPF_OBJ)),)
-    GOENV := GOOS=$(GOOS) GOARCH=$(GOARCH)
+GOENV := GOOS=$(GOOS) GOARCH=$(GOARCH)
+
+# for libbpf tag, if libbpf.a, kepler.bpf.o exist, clear bcc tag
+ifneq ($(LIBBPF_TAG),)
+	ifneq ($(wildcard $(LIBBPF_OBJ)),)
+		ifneq ($(wildcard $(KEPLER_OBJ_SRC)),)
+			GOENV = GO111MODULE="" GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 CC=clang CGO_CFLAGS="-I $(LIBBPF_HEADERS)" CGO_LDFLAGS="$(LIBBPF_OBJ)"
+			BCC_TAG = 
+		endif
+	endif
+endif
+
+# if bcc tag is not clear, clear libbpf tag
+ifneq ($(BCC_TAG),)
+	LIBBPF_TAG = 
+endif
+
+ATTACHER_TAG := $(BCC_TAG)$(LIBBPF_TAG)
+
+
+
+ifneq ($(ATTACHER_TAG),)
+	DOCKERFILE := $(SRC_ROOT)/build/Dockerfile.$(ATTACHER_TAG).kepler
+	IMAGE_BUILD_TAG := $(SOURCE_GIT_TAG)-linux-$(GOARCH)-$(ATTACHER_TAG)
+	GO_BUILD_TAGS := $(GENERAL_TAGS)'$(ATTACHER_TAG) '$(GOOS)
 else
-	GOENV := GO111MODULE="" GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 CC=clang CGO_CFLAGS="-I $(LIBBPF_HEADERS)" CGO_LDFLAGS="$(LIBBPF_OBJ)"
+	DOCKERFILE := $(SRC_ROOT)/build/Dockerfile
+	IMAGE_BUILD_TAG := $(SOURCE_GIT_TAG)-linux-$(GOARCH)
+	GO_BUILD_TAGS := $(GENERAL_TAGS)$(GOOS)
 endif
-
-GENERAL_TAGS := 'include_gcs include_oss containers_image_openpgp gssapi providerless netgo osusergo gpu '
-BCC_TAG := ''
-LIBBPF_TAG := ''
-ifneq ($(shell command -v ldconfig),)
-	ifneq ($(shell ldconfig -p|grep bcc),)
-		BCC_TAG = 'bcc '
-  	endif
-endif
-
-ifneq ($(shell command -v dpkg),)
-	ifneq ($(shell dpkg -l|grep bcc),)
-		BCC_TAG = 'bcc '
-	endif
-endif
-
-ifneq ($(shell command -v ldconfig),)
-	ifneq ($(shell ldconfig -p|grep libbpf),)
-     LIBBPF_TAG = 'libbpf '
-	endif
-endif
-
-ifneq ($(shell command -v dpkg),)
-	ifneq ($(shell dpkg -l|grep libbpf-dev),)
-		LIBBPF_TAG = 'libbpf '
-	endif
-endif
-
-GO_BUILD_TAGS := $(GENERAL_TAGS)$(BCC_TAG)$(LIBBPF_TAG)$(GOOS)
 
 # for testsuite
 ENVTEST_ASSETS_DIR=./test-bin
@@ -137,14 +162,14 @@ build_containerized: genbpfassets tidy-vendor format
 	@if [ -z '$(CTR_CMD)' ] ; then echo '!! ERROR: containerized builds require podman||docker CLI, none found $$PATH' >&2 && exit 1; fi
 	echo BIN_TIMESTAMP==$(BIN_TIMESTAMP)
 
-	$(CTR_CMD) build -t $(IMAGE_REPO)/kepler:$(SOURCE_GIT_TAG)-linux-$(GOARCH) \
-		-f "$(SRC_ROOT)"/build/Dockerfile \
+	$(CTR_CMD) build -t $(IMAGE_REPO)/kepler:$(IMAGE_BUILD_TAG) \
+		-f $(DOCKERFILE) \
 		--build-arg SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) \
 		--build-arg BIN_TIMESTAMP=$(BIN_TIMESTAMP) \
 		--platform="linux/$(GOARCH)" \
 		.
 
-	$(CTR_CMD) tag $(IMAGE_REPO)/kepler:$(SOURCE_GIT_TAG)-linux-$(GOARCH) $(IMAGE_REPO)/kepler:$(IMAGE_TAG)
+	$(CTR_CMD) tag $(IMAGE_REPO)/kepler:$(IMAGE_BUILD_TAG) $(IMAGE_REPO)/kepler:$(IMAGE_TAG)
 
 .PHONY: build_containerized
 
@@ -163,6 +188,7 @@ build: clean_build_local _build_local copy_build_local
 .PHONY: build
 
 _build_local: tidy-vendor format
+	@echo TAGS=$(GO_BUILD_TAGS)
 	@mkdir -p "$(CROSS_BUILD_BINDIR)/$(GOOS)_$(GOARCH)"
 	+@$(GOENV) go build -v -tags ${GO_BUILD_TAGS} -o $(CROSS_BUILD_BINDIR)/$(GOOS)_$(GOARCH)/kepler -ldflags $(LDFLAGS) ./cmd/exporter.go
 
@@ -231,12 +257,15 @@ ginkgo-set:
 	  cp $(GOBIN)/ginkgo $(ENVTEST_ASSETS_DIR)/ginkgo)
 
 test: ginkgo-set tidy-vendor
+	@echo TAGS=$(GO_BUILD_TAGS)
 	@$(GOENV) go test -tags $(GO_BUILD_TAGS) ./... --race --bench=. -cover --count=1 --vet=all
 
 test-verbose: ginkgo-set tidy-vendor
+	@echo TAGS=$(GO_BUILD_TAGS)
 	@$(GOENV) go test -tags $(GO_BUILD_TAGS) -covermode=atomic -coverprofile=coverage.out -v $$(go list ./... | grep pkg | grep -v bpfassets) --race --bench=. -cover --count=1 --vet=all
 	
 test-mac-verbose: ginkgo-set
+	@echo TAGS=$(GO_BUILD_TAGS)
 	@go test $$(go list ./... | grep pkg | grep -v bpfassets) --race --bench=. -cover --count=1 --vet=all
 
 escapes_detect: tidy-vendor
@@ -247,6 +276,12 @@ set_govulncheck:
 
 govulncheck: set_govulncheck tidy-vendor
 	@govulncheck -v ./... || true
+
+e2e-libbpf:
+	$(GOENV) go test ./e2e/... --tags libbpf -v --race --bench=. -cover --count=1 --vet=all
+
+e2e-bcc:
+	go test ./e2e/... --tags bcc -v --race --bench=. -cover --count=1 --vet=all
 
 format:
 	./automation/presubmit-tests/gofmt.sh
