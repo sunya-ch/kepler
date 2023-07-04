@@ -44,18 +44,3 @@ jobs:
       id: verify-changed-files
       with:
         files: README.md
-
-    - name: Commit changes
-      if: github.event_name != 'pull_request' && steps.verify-changed-files.outputs.files_changed == 'true' 
-      run: |
-        git config --local user.email "bot@sustainable-computing.io"
-        git config --local user.name "sustainable-computing-bot"
-        git add README.md
-        git commit -m "bot: Updated coverage badge." -s
-
-    - name: Push changes
-      if: github.event_name != 'pull_request' && steps.verify-changed-files.outputs.files_changed == 'true' 
-      uses: ad-m/github-push-action@master
-      with:
-        github_token: ${{ secrets.GH_BOT_SECRET }}
-        branch: ${{ github.head_ref }}
