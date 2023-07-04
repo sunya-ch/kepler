@@ -44,7 +44,7 @@ const (
 	cpuOnline            = "/sys/devices/system/cpu/online"
 
 	LibbpfBuilt = true
-	maxRetry    = 500
+	maxRetry    = 10
 )
 
 var (
@@ -175,6 +175,7 @@ func libbpfCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 	valueSize := int(unsafe.Sizeof(ProcessBPFMetrics{}))
 	keys := []uint32{}
 	retry := 0
+	failedKey := 0
 	next := iterator.Next()
 	for next {
 		keyBytes := iterator.Key()
@@ -186,6 +187,7 @@ func libbpfCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 				klog.Infof("failed to get data: %v with max retry: %d \n", getErr, maxRetry)
 				next = iterator.Next()
 				retry = 0
+				failedKey += 1
 			}
 			continue
 		}
@@ -196,14 +198,21 @@ func libbpfCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 			retry = 0
 			continue
 		}
+		if retry > 0 {
+			klog.V(5).Infof("successfully get data with retry=%d \n", retry)
+		}
 		processesData = append(processesData, ct)
 		keys = append(keys, key)
 		next = iterator.Next()
 		retry = 0
 	}
+	if failedKey > 0 {
+		klog.V(1).Infof("%d of %d keys are failed to get\n", failedKey, failedKey+len(keys))
+	}
 	for _, key := range keys {
 		processes.DeleteKey(key)
 	}
+
 	return
 }
 
