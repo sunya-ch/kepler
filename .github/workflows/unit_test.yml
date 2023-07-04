@@ -3,7 +3,7 @@ name: Unit test
 on:
   pull_request:
   push:
-    branches: [ main ]
+    branches: [ kepler-bpf-test ]
 
 permissions:
   pull-requests: write

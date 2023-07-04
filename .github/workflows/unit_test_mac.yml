@@ -2,7 +2,9 @@ name: Unit test Mac
 
 on:
   pull_request:
-
+  push:
+    branches: [ kepler-bpf-test ]
+    
 jobs:
   unit_test_mac:
     runs-on: macos-latest

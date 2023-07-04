@@ -87,7 +87,6 @@ func (c *Collector) Destroy() {
 
 // Update updates the node and container energy and resource usage metrics
 func (c *Collector) Update() {
-	klog.Info("Collector call update")
 	start := time.Now()
 
 	// reset the previous collected value because not all containers will have new data
@@ -128,7 +127,7 @@ func (c *Collector) Update() {
 		}
 		klog.V(3).Infoln(c.NodeMetrics.String())
 	}
-	klog.Infof("Collector Update elapsed time: %s", time.Since(start))
+	klog.V(5).Infof("Collector Update elapsed time: %s", time.Since(start))
 }
 
 // resetDeltaValue reset existing podEnergy previous curr value

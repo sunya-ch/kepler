@@ -45,7 +45,7 @@ jobs:
           kubectl port-forward --address localhost $(kubectl -n kepler get pods -o name) 9102:9102 -n kepler -v7 &
           kubectl logs -n kepler daemonset/kepler-exporter
           kubectl get pods -n kepler -o yaml
-          make e2e-libbpf
           make e2e-bcc
+          make e2e-libbpf
         env:
             kepler_address: localhost:9102
