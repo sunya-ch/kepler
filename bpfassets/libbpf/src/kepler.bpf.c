@@ -179,36 +179,42 @@ int kepler_trace(struct sched_switch_args *ctx)
     process_metrics = bpf_map_lookup_elem(&processes, &prev_pid);
     if (process_metrics)
     {
+        u64 cgroup_id = process_metrics->cgroup_id;
+        u64 pid = process_metrics->pid;
+        
+        process_metrics_t update_process = {.pid = cgroup_id, .cgroup_id = pid};
+        bpf_get_current_comm(&update_process.comm, sizeof(update_process.comm));
         // update process time
-        process_metrics->process_run_time += on_cpu_time_delta;
+        update_process.process_run_time = process_metrics->process_run_time + on_cpu_time_delta;
 
-        process_metrics->cpu_cycles += on_cpu_cycles_delta;
-        process_metrics->cpu_instr += on_cpu_instr_delta;
-        process_metrics->cache_miss += on_cpu_cache_miss_delta;
+        update_process.cpu_cycles = process_metrics->cpu_cycles + on_cpu_cycles_delta;
+        update_process.cpu_instr = process_metrics->cpu_instr + on_cpu_instr_delta;
+        update_process.cache_miss = process_metrics->cache_miss + on_cpu_cache_miss_delta;
+        bpf_map_update_elem(&processes, &cur_pid, &update_process, BPF_ANY);
     }
 
     process_metrics = bpf_map_lookup_elem(&processes, &cur_pid);
     if (process_metrics == 0)
     {
-        process_metrics_t new_process = {};
-        new_process.pid = cur_pid;
-        new_process.cgroup_id = cgroup_id;
+        process_metrics_t new_process = {.pid = cur_pid, .cgroup_id = cgroup_id};
         bpf_get_current_comm(&new_process.comm, sizeof(new_process.comm));
         bpf_map_update_elem(&processes, &cur_pid, &new_process, BPF_NOEXIST);
     }
     return 0;
 }
 
+// TODO: fix Permission denied
 SEC("tracepoint/irq/softirq_entry")
 int kepler_irq_trace(struct trace_event_raw_softirq *ctx)
 {
     u64 cur_pid = bpf_get_current_pid_tgid() >> 32;
     struct process_metrics_t *process_metrics;
     process_metrics = bpf_map_lookup_elem(&processes, &cur_pid);
+    unsigned int vec = ctx->vec;
     if (process_metrics != 0)
     {
-        if (ctx->vec < 10) {
-            process_metrics->vec_nr[ctx->vec] ++;
+        if (vec < 10) {
+            process_metrics->vec_nr[vec] ++;
         }
     }
     return 0;
