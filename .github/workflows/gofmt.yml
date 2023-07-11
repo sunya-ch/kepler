@@ -1,6 +1,9 @@
 name: gofmt
 
 on:
+  push:
+    branches:
+      - '*-test'
   pull_request:
     paths-ignore:
       - 'doc/**'

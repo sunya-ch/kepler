@@ -1,6 +1,9 @@
 name: Unit test Mac
 
 on:
+  push:
+    branches:
+      - '*-test'
   pull_request:
     paths-ignore:
       - 'doc/**'
