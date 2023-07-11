@@ -96,16 +96,17 @@ func (c *Collector) updateBPFMetrics() {
 		return
 	}
 	for _, ct := range processesData {
+		comm := C.GoString((*C.char)(unsafe.Pointer(&ct.Command)))
 		containerID, err := cgroup.GetContainerID(ct.CGroupID, ct.PID, config.EnabledEBPFCgroupID)
 		if err != nil {
-			klog.V(5).Infof("failed to resolve container for cGroup ID %v: %v, set containerID=%s", ct.CGroupID, err, c.systemProcessName)
+			klog.V(1).Infof("failed to resolve container for cGroup ID %v (command=%s): %v, set containerID=%s", ct.CGroupID, comm, err, c.systemProcessName)
 		}
 
 		isSystemProcess := containerID == c.systemProcessName
 
 		c.createContainersMetricsIfNotExist(containerID, ct.CGroupID, ct.PID, config.EnabledEBPFCgroupID)
 		c.ContainersMetrics[containerID].PID = ct.PID
-		comm := C.GoString((*C.char)(unsafe.Pointer(&ct.Command)))
+
 		// System process is the aggregation of all background process running outside kubernetes
 		// this means that the list of process might be very large, so we will not add this information to the cache
 		if !isSystemProcess {

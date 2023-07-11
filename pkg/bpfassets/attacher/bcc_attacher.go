@@ -226,13 +226,14 @@ func bccCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 	}
 	// if ebpf map batch get operation is not supported we iterate over the map
 	if !ebpfBatchGet {
-		for it := c.bpfHCMeter.Table.Iter(); it.Next(); {
+		for it := bccModule.Table.Iter(); it.Next(); {
 			key := it.Key()
 			value := it.Leaf()
 			keys = append(keys, key)
 			values = append(values, value)
 		}
 	}
+	klog.Infof("keys=%v", keys)
 
 	// iterate over the keys and values
 	for i := 0; i < len(keys); i++ {
@@ -252,8 +253,9 @@ func bccCollectProcess() (processesData []ProcessBPFMetrics, err error) {
 				keysToDelete = append(keysToDelete, key)
 			} else {
 				err = bccModule.Table.Delete(key) // deleting the element to reset the counter values
-				if err != nil && !os.IsNotExist(err) {
+				if err != nil {
 					klog.Infof("could not delete bpf table elements, err: %v", err)
+					keysToDelete = append(keysToDelete, key)
 				}
 			}
 		}
