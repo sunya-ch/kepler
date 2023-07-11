@@ -15,6 +15,13 @@ limitations under the License.
 */
 
 // +build ignore
+
+#include <linux/version.h>
+
+#if (LINUX_KERNEL_VERSION >= KERNEL_VERSION(5, 12, 0))
+#define BPF_PERF_EVENT_READ_VALUE_AVAILABLE 1
+#endif
+
 #include "kepler.bpf.h"
 
 // processes and pid time
