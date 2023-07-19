@@ -159,9 +159,12 @@ func main() {
 
 	config.SetKubeConfig(*kubeconfig)
 	config.SetEnableAPIServer(*apiserverEnabled)
-	if kernelSourceDirPath != nil && len(*kernelSourceDirPath) > 0 {
-		if err := config.SetKernelSourceDir(*kernelSourceDirPath); err != nil {
-			klog.Warningf("failed to set kernel source dir to %q: %v", *kernelSourceDirPath, err)
+	// ignore if libbpf is used
+	if !config.UseLibBPFAttacher {
+		if kernelSourceDirPath != nil && len(*kernelSourceDirPath) > 0 {
+			if err := config.SetKernelSourceDir(*kernelSourceDirPath); err != nil {
+				klog.Warningf("failed to set kernel source dir to %q: %v", *kernelSourceDirPath, err)
+			}
 		}
 	}
 
