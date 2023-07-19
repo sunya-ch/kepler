@@ -139,7 +139,7 @@ func attachLibbpfModule() (*bpf.Module, error) {
 		}
 	}
 
-	klog.Infof("Successfully load eBPF module from libbpf object")
+	klog.Infof("Successfully load eBPF module from libbpf object (maxRetry=%d)", maxRetry)
 	return libbpfModule, nil
 }
 
