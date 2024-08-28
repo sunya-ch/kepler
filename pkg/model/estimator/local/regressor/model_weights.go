@@ -20,17 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/sustainable-computing-io/kepler/pkg/model/types"
 )
 
 var (
 	errModelWeightsInvalid = errors.New("ModelWeights is invalid")
-
-	WeightSupportedTrainers = []string{
-		"SGDRegressorTrainer",
-		"LogarithmicRegressionTrainer",
-		"LogisticRegressionTrainer",
-		"ExponentialRegressionTrainer",
-	}
 )
 
 /*
@@ -144,7 +139,7 @@ func (w ComponentModelWeights) Trainer() string {
 }
 
 func isSupportedTrainer(trainer string) bool {
-	for _, supportedTrainer := range WeightSupportedTrainers {
+	for _, supportedTrainer := range types.WeightSupportedTrainers {
 		if trainer == supportedTrainer {
 			return true
 		}
