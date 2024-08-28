@@ -185,7 +185,8 @@ func (r *Regressor) getWeightFromServer() (*ComponentModelWeights, error) {
 		return nil, fmt.Errorf("model unmarshal error: %v (%s)", err, string(body))
 	}
 	if weightResponse.ModelName != "" {
-		klog.V(3).Infof("Using weights trained by %s", weightResponse.ModelName)
+		r.TrainerName = weightResponse.Trainer()
+		klog.V(3).Infof("Using weights from model %s trained by %s for %s", weightResponse.ModelName, r.TrainerName, r.EnergySource)
 	}
 	// TODO: set r.coreRatio from discover spec/model machine spec based on PR #1684
 	return &weightResponse, nil
@@ -208,6 +209,10 @@ func (r *Regressor) loadWeightFromURLorLocal() (*ComponentModelWeights, error) {
 	err = json.Unmarshal(body, &content)
 	if err != nil {
 		return nil, fmt.Errorf("model unmarshal error: %v (%s)", err, string(body))
+	}
+	if content.ModelName != "" {
+		r.TrainerName = content.Trainer()
+		klog.V(3).Infof("Using weights from model %s trained by %s for %s", content.ModelName, r.TrainerName, r.EnergySource)
 	}
 	return &content, nil
 }

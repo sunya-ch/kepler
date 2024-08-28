@@ -274,4 +274,20 @@ var _ = Describe("Test Regressor Weight Unit (default trainer)", func() {
 			Expect(err).NotTo(HaveOccurred())
 		})
 	})
+
+	DescribeTable("Test ComponentModelWeights.Trainer", func(modelName, expectedTrainer string) {
+		w := ComponentModelWeights{
+			ModelName: modelName,
+		}
+		Expect(w.Trainer()).To(Equal(expectedTrainer))
+	},
+		Entry("empty model name", "", ""),
+		Entry("invalid model name", "some", ""),
+		Entry("invalid model name with _", "some_invalid", ""),
+		Entry("valid SGDRegressorTrainer", "SGDRegressorTrainer_0", "SGDRegressorTrainer"),
+		Entry("valid LogarithmicRegressionTrainer", "LogarithmicRegressionTrainer_0", "LogarithmicRegressionTrainer"),
+		Entry("valid LogisticRegressionTrainer", "LogisticRegressionTrainer_0", "LogisticRegressionTrainer"),
+		Entry("valid ExponentialRegressionTrainer", "ExponentialRegressionTrainer_0", "ExponentialRegressionTrainer"),
+		Entry("invalid GradientBoostingRegressorTrainer", "GradientBoostingRegressorTrainer_0", ""),
+	)
 })

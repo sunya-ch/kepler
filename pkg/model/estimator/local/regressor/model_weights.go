@@ -19,10 +19,18 @@ package regressor
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 var (
 	errModelWeightsInvalid = errors.New("ModelWeights is invalid")
+
+	WeightSupportedTrainers = []string{
+		"SGDRegressorTrainer",
+		"LogarithmicRegressionTrainer",
+		"LogisticRegressionTrainer",
+		"ExponentialRegressionTrainer",
+	}
 )
 
 /*
@@ -121,4 +129,25 @@ func (w ComponentModelWeights) String() string {
 		return fmt.Sprintf("%s (platform: %v)", w.ModelName, w.Platform)
 	}
 	return fmt.Sprintf("%s (package: %v (core: %v, uncore: %v), dram: %v)", w.ModelName, w.Package, w.Core, w.Uncore, w.DRAM)
+}
+
+func (w ComponentModelWeights) Trainer() string {
+	if w.ModelName == "" {
+		return ""
+	}
+	modelNameSplits := strings.Split(w.ModelName, "_")
+	splitTrainer := strings.Join(modelNameSplits[0:len(modelNameSplits)-1], "_")
+	if isSupportedTrainer(splitTrainer) {
+		return splitTrainer
+	}
+	return ""
+}
+
+func isSupportedTrainer(trainer string) bool {
+	for _, supportedTrainer := range WeightSupportedTrainers {
+		if trainer == supportedTrainer {
+			return true
+		}
+	}
+	return false
 }
